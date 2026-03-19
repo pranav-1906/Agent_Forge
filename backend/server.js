@@ -6,7 +6,7 @@ import { ObjectId } from 'mongodb';
 import multer from 'multer';
 import { connectDB, agentsCollection, memoryCollection, usersCollection } from './db.js';
 import { generateAgentConfig } from './ai.js';
-import { sendToSlack } from './integrations.js'; 
+import { sendEmail, fireWebhook } from './integrations.js';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -179,18 +179,17 @@ app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
 // THE RUNNER ROUTE (Requires Login)
 // THE RUNNER ROUTE (Now with File Support!)
 // Notice we added `upload.single('file')` as middleware before the async function
+// THE FULLY UPGRADED RUNNER ROUTE (Files + Memory + Tools)
 app.post('/api/run', authenticateToken, upload.single('file'), async (req, res) => {
     try {
-        // Since we might be sending a file, the frontend will send FormData instead of raw JSON
         const agent_name = req.body.agent_name;
         let input_data = req.body.input_data || "";
 
-        // 📄 FILE PARSING LOGIC
+        // 📄 1. FILE PARSING LOGIC
         if (req.file) {
             console.log(`📁 Received file: ${req.file.originalname}`);
             
             if (req.file.mimetype === 'application/pdf') {
-                // 🛡️ THE MODERN FORK BYPASS
                 const pdfModule = await import('pdf-extraction');
                 const extractPdf = pdfModule.default || pdfModule; 
                 
@@ -210,22 +209,48 @@ app.post('/api/run', authenticateToken, upload.single('file'), async (req, res) 
             return res.status(400).json({ error: "Please provide text or upload a file." });
         }
 
-        // 🔍 Fetch Agent details
+// 🔍 2. FETCH AGENT & PERSISTENT MEMORY
         const agent = await agentsCollection.findOne({ agent_name: agent_name });
         if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-        // 🧠 Memory Context
-        const memoryQuery = await (await memoryCollection.find({ agent_name })).toArray();
-        const pastMemories = memoryQuery.slice(-2); 
-        const memoryContext = pastMemories.map(m => `Old Input: ${m.input}\nOld Output: ${m.output}`).join('\n\n');
+        // Ensure tools is always an array to prevent "undefined" errors later
+        const tools = agent.required_tools || [];
 
+        // Fetch last 2 interactions for context (Long-term Memory)
+        const memoryQuery = await memoryCollection.find({ agent_name }).toArray();
+        const pastMemories = memoryQuery.slice(-2); 
+        
+        const memoryContext = pastMemories.length > 0 
+            ? pastMemories.map(m => `Past Task: ${m.input}\nPast Result: ${m.output}`).join('\n\n')
+            : "No previous history with this agent.";
+
+        // 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
+        let toolInstructions = "";
+        
+        if (tools.includes('Gmail')) {
+            toolInstructions = `
+CRITICAL TOOL INSTRUCTION:
+This agent has access to Gmail. If the user's request requires sending an email, you MUST include a JSON block at the very end of your response formatted EXACTLY like this:
+\`\`\`json
+{
+  "action": "send_email",
+  "to": "recipient_email@example.com",
+  "subject": "Your Subject Here",
+  "text": "The full body of the email."
+}
+\`\`\`
+Do not include any other text inside the code block.`;
+        }
+
+        // 🧠 4. THE MASTER PROMPT
         const executionPrompt = `You are an AI agent named "${agent.agent_name}".
 Your specific task is: "${agent.task_description}".
 
 CRITICAL RULES:
 1. You must execute your task ONLY on the "NEW INPUT" provided below.
 2. YOU MUST FORMAT YOUR OUTPUT EXACTLY LIKE THIS: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
-3. Do NOT copy, repeat, or process the "PAST MEMORY". 
+3. Do NOT copy, repeat, or process the "PAST MEMORY". IMPORTANT: You must write the FULL body of the email. Do not use placeholders or '...' - write every single word as it should appear to the recipient.
+${toolInstructions}
 
 ${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
 
@@ -235,6 +260,7 @@ ${input_data}
 
 Execute your task and format the output now:`;
 
+        // 🚀 5. EXECUTE AI
         const response = await fetch('http://localhost:11434/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -242,16 +268,44 @@ Execute your task and format the output now:`;
         });
 
         const data = await response.json();
-        const aiOutput = data.response.trim();
+        let aiOutput = data.response.trim();
+        let finalOutput = aiOutput;
 
+        // 🕵️ 6. THE INTERCEPTOR: Scan for Tool Commands
+        const jsonBlockRegex = /```json\n([\s\S]*?)\n```/;
+        const match = aiOutput.match(jsonBlockRegex);
+
+        if (match && tools.includes('Gmail')) {
+            try {
+                const actionData = JSON.parse(match[1]);
+                
+                if (actionData.action === 'send_email' && actionData.to) {
+                    console.log(`📧 Intercepted email command to: ${actionData.to}`);
+                    
+                    // Trigger the physical email!
+                    const emailResult = await sendEmail(actionData.to, actionData.subject, actionData.text);
+                    
+                    // Strip the ugly JSON out of the UI and replace it with a sleek success badge
+                    if (emailResult.success) {
+                        finalOutput = aiOutput.replace(match[0], `\n\n> **✅ Live Action Executed:** Email successfully sent to \`${actionData.to}\``);
+                    } else {
+                        finalOutput = aiOutput.replace(match[0], `\n\n> **❌ Action Failed:** Could not send email. Error: ${emailResult.error}`);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to parse AI action payload:", err);
+            }
+        }
+
+        // 💾 7. SAVE TO MEMORY
         await memoryCollection.insertOne({
             agent_name: agent.agent_name,
             input: input_data.substring(0, 50) + '...',
-            output: aiOutput,
+            output: finalOutput, 
             timestamp: new Date().toISOString()
         });
 
-        res.json({ success: true, output: aiOutput });
+        res.json({ success: true, output: finalOutput });
     } catch (error) {
         console.error("Run Error:", error);
         res.status(500).json({ error: "Failed to run agent." });

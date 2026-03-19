@@ -52,7 +52,7 @@ function checkAuth() {
     if (token) {
         authView.classList.add('hidden');
         appLayout.classList.remove('hidden');
-        userGreeting.innerText = `👋 Hi, ${userName}`;
+        userGreeting.innerText = `Hi, ${userName}`;
         switchTab('my-agents'); // Default to personal workspace
     } else {
         authView.classList.remove('hidden');
@@ -136,14 +136,14 @@ function switchTab(tabName) {
     
     // UI Styling for active tab
     if (tabName === 'my-agents') {
-        tabMyWorkspace.style.background = '#5e6ad2';
+        tabMyWorkspace.style.background = 'rgba(0, 112, 255,0.55)';
         tabMyWorkspace.style.color = '#fff';
-        tabMarketplace.style.background = '#222';
+        tabMarketplace.style.background = '#0000';
         tabMarketplace.style.color = '#aaa';
     } else {
-        tabMarketplace.style.background = '#5e6ad2';
+        tabMarketplace.style.background = 'rgba(0, 112, 255,0.55)';
         tabMarketplace.style.color = '#fff';
-        tabMyWorkspace.style.background = '#222';
+        tabMyWorkspace.style.background = '#0000';
         tabMyWorkspace.style.color = '#aaa';
     }
 
@@ -172,13 +172,15 @@ async function loadAgents() {
     }
 }
 
-// 🎨 1. The Bulletproof Sidebar Renderer
+// 🎨 1. The Luxury Sidebar Renderer
 function renderSidebar() {
     agentList.innerHTML = '';
     
     if (allAgents.length === 0) {
-        const emptyMsg = currentTab === 'my-agents' ? 'No agents yet.<br>Build one!' : 'Marketplace is empty.';
-        agentList.innerHTML = `<div style="color:#666; font-size:0.85rem; text-align:center; margin-top:20px;">${emptyMsg}</div>`;
+        const emptyMsg = currentTab === 'my-agents' 
+            ? 'Your workspace is empty.<br><span style="font-size:0.75rem; color:#666;">Forge your first agent.</span>' 
+            : 'The Marketplace is empty.';
+        agentList.innerHTML = `<div style="color:#a1a1aa; font-size:0.9rem; text-align:center; margin-top:40px; line-height:1.6;">${emptyMsg}</div>`;
         return;
     }
 
@@ -192,9 +194,9 @@ function renderSidebar() {
         textWrapper.style.textOverflow = "ellipsis";
 
         if (currentTab === 'marketplace') {
-            textWrapper.innerHTML = `<div>${agent.agent_name}</div><div style="font-size:0.75rem; color:#666; margin-top:3px;">by ${agent.creator_name}</div>`;
+            textWrapper.innerHTML = `<div class="agent-name-text">${agent.agent_name}</div><div class="agent-author-text">Architected by ${agent.creator_name}</div>`;
         } else {
-            textWrapper.innerText = agent.agent_name;
+            textWrapper.innerHTML = `<div class="agent-name-text">${agent.agent_name}</div>`;
         }
         item.appendChild(textWrapper);
 
@@ -202,57 +204,57 @@ function renderSidebar() {
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'delete-btn';
             deleteBtn.title = "Delete Agent";
-            deleteBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
+            deleteBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
             
             deleteBtn.onclick = (e) => deleteAgent(agent._id, e);
             item.appendChild(deleteBtn);
         }
 
-        // THE FIX: Simple, clean click assignment. 
-        // (The delete button's stopPropagation will prevent this from firing if the trash icon is clicked).
         item.onclick = () => selectAgent(agent, item);
-        
         agentList.appendChild(item);
     });
 }
 
-// 🧠 2. The Crash-Proof Agent Selector
-// 🧠 The Crash-Proof & Dynamic Agent Selector
+// 🧠 2. The Grandma-Proof Agent Card
 function selectAgent(agent, element) {
     document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
     if (element) element.classList.add('active');
 
     buildView.classList.add('hidden');
     runView.classList.remove('hidden');
-    
-    // Clear any old files hanging around
     currentAttachedFile = null; 
 
-    const tools = agent.required_tools || [];
+    // Vernacular shift: "Tools" sounds complicated. "Capabilities" sounds powerful.
+    const tools = agent.required_tools && agent.required_tools.length > 0 ? agent.required_tools : ['Text Analysis'];
+    const badgeText = currentTab === 'marketplace' ? `Built by ${agent.creator_name}` : `⚡ ${tools.join(', ')}`;
 
     if (currentTab === 'marketplace') {
         activeAgentContainer.innerHTML = `
             <div class="agent-card">
                 <div class="agent-header">
                     <div class="agent-title">${agent.agent_name}</div>
-                    <div class="tool-badge">Created by ${agent.creator_name}</div>
+                    <div class="tool-badge">${badgeText}</div>
                 </div>
                 <div class="agent-task">${agent.task_description}</div>
-                <div class="run-section" style="text-align: center; padding: 30px;">
-                    <p style="color: #aaa; margin-bottom: 20px;">Add this agent to your personal workspace to use it.</p>
-                    <button class="run-btn" id="clone-btn" style="background: #28a745; max-width: 250px; margin: 0 auto;">Clone to My Workspace</button>
+                <div class="run-section" style="text-align: center; padding: 40px 20px;">
+                    <p style="color: #a1a1aa; margin-bottom: 24px; font-size: 1.05rem;">Clone this AI to your personal workspace to start using it.</p>
+                    <button class="primary-btn" id="clone-btn" style="background: #10b981; max-width: 300px; margin: 0 auto; width: 100%;">Add to My Workspace</button>
                 </div>
             </div>
         `;
         document.getElementById('clone-btn').onclick = () => cloneAgent(agent._id, document.getElementById('clone-btn'));
     } else {
-        const placeholderText = tools.includes('Slack') ? "Paste data to send to Slack..." : "Enter text prompt here...";
+        const placeholderText = agent.accepts_files 
+            ? "Provide any specific instructions for the document here..." 
+            : "What would you like me to process today?";
         
-        // 🔮 DYNAMIC UI: Only build the Dropzone if the AI flagged it!
         const fileUploadHTML = agent.accepts_files ? `
             <div class="file-drop-zone" id="drop-zone">
                 <input type="file" id="file-input" class="file-input-hidden" accept=".txt,.pdf">
-                <div id="drop-zone-text">📄 Drag & drop a PDF or TXT here, or click to browse</div>
+                <div id="drop-zone-text">
+                    <svg style="margin-bottom:8px;" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <br>Drag & drop a document here, or click to browse
+                </div>
                 <div id="file-preview-container"></div>
             </div>
         ` : '';
@@ -261,26 +263,22 @@ function selectAgent(agent, element) {
             <div class="agent-card">
                 <div class="agent-header">
                     <div class="agent-title">${agent.agent_name}</div>
-                    <div class="tool-badge">⟎ ${tools.join(', ') || 'Native Agent'}</div>
+                    <div class="tool-badge">${badgeText}</div>
                 </div>
                 <div class="agent-task">${agent.task_description}</div>
                 <div class="run-section">
                     <textarea id="run-input" placeholder="${placeholderText}"></textarea>
-                    ${fileUploadHTML} <button class="run-btn" id="execute-btn">Run Agent</button>
+                    ${fileUploadHTML}
+                    <button class="primary-btn pulse-hover" id="execute-btn">Run Agent</button>
                 </div>
                 <div class="output-box" id="run-output" style="display: none;"></div>
             </div>
         `;
 
         document.getElementById('execute-btn').onclick = () => executeAgent(agent);
-
-        // 🖱️ Wire up the Drag & Drop mechanics if the zone exists
-        if (agent.accepts_files) {
-            setupDragAndDrop();
-        }
+        if (agent.accepts_files) setupDragAndDrop();
     }
 }
-
 // 🖱️ Drag & Drop Handlers
 function setupDragAndDrop() {
     const dropZone = document.getElementById('drop-zone');
