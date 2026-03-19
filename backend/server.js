@@ -35,6 +35,19 @@ app.post('/api/build', async (req, res) => {
     }
 });
 
+// 📋 Phase 3: GET ALL AGENTS (For Sidebar & Marketplace)
+app.get('/api/agents', async (req, res) => {
+    try {
+        const agents = await (await agentsCollection.find()).toArray();
+        // Sort them so the newest agent always appears at the top of the list
+        const sortedAgents = agents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        res.json({ success: true, agents: sortedAgents });
+    } catch (error) {
+        console.error("🔴 Fetch failed:", error.message);
+        res.status(500).json({ error: "Failed to fetch agents." });
+    }
+});
+
 // 🏃 Phase 2: THE RUNNER ROUTE (Dynamic Execution & Memory Patch)
 app.post('/api/run', async (req, res) => {
     try {

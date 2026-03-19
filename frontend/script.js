@@ -1,22 +1,91 @@
 const API_URL = 'http://localhost:5000/api';
+let allAgents = []; // Holds our database state locally
 
+// DOM Elements
+const agentList = document.getElementById('agent-list');
+const newAgentBtn = document.getElementById('new-agent-btn');
+const buildView = document.getElementById('build-view');
+const runView = document.getElementById('run-view');
+const activeAgentContainer = document.getElementById('active-agent-container');
 const promptInput = document.getElementById('prompt-input');
 const buildBtn = document.getElementById('build-btn');
-const workspace = document.getElementById('agents-grid');
 const loadingState = document.getElementById('loading-state');
 
-// Trigger build on Enter key
-promptInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') buildAgent();
-});
+// 🚀 INITIALIZATION: Fetch from MongoDB Atlas on load
+async function loadAgents() {
+    try {
+        const response = await fetch(`${API_URL}/agents`);
+        const data = await response.json();
+        if (data.success) {
+            allAgents = data.agents;
+            renderSidebar();
+        }
+    } catch (error) {
+        console.error("Failed to load agents from DB.");
+    }
+}
 
-buildBtn.addEventListener('click', buildAgent);
+// 🎨 Render the left sidebar
+function renderSidebar() {
+    agentList.innerHTML = '';
+    allAgents.forEach(agent => {
+        const item = document.createElement('div');
+        item.className = 'sidebar-item';
+        item.innerText = agent.agent_name;
+        item.onclick = () => selectAgent(agent, item);
+        agentList.appendChild(item);
+    });
+}
 
-async function buildAgent() {
+// 🖱️ Handle clicking an agent in the sidebar
+function selectAgent(agent, element) {
+    // 1. Update UI active states
+    document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+    if (element) element.classList.add('active');
+
+    // 2. Switch Views
+    buildView.classList.add('hidden');
+    runView.classList.remove('hidden');
+
+    // 3. Render the specific agent card safely
+    const placeholderText = agent.required_tools.includes('Slack') ? 
+        "Paste data to send to Slack..." : "Enter data here...";
+
+    activeAgentContainer.innerHTML = `
+        <div class="agent-card">
+            <div class="agent-header">
+                <div class="agent-title">${agent.agent_name}</div>
+                <div class="tool-badge">⟎ ${agent.required_tools.join(', ')}</div>
+            </div>
+            <div class="agent-task">${agent.task_description}</div>
+            
+            <div class="run-section">
+                <textarea id="run-input" placeholder="${placeholderText}"></textarea>
+                <button class="run-btn" id="execute-btn">Run Agent</button>
+            </div>
+            
+            <div class="output-box" id="run-output" style="display: none;"></div>
+        </div>
+    `;
+
+    // 4. Attach the exact event listener safely to this specific card
+    document.getElementById('execute-btn').onclick = () => executeAgent(agent);
+}
+
+// ➕ Handle clicking "+ New Agent"
+newAgentBtn.onclick = () => {
+    document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+    runView.classList.add('hidden');
+    buildView.classList.remove('hidden');
+    promptInput.value = '';
+    promptInput.focus();
+};
+
+// 🛠️ The Build Process
+buildBtn.onclick = async () => {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
 
-    // UI Updates
     promptInput.value = '';
     loadingState.classList.remove('hidden');
 
@@ -26,70 +95,45 @@ async function buildAgent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt })
         });
-
         const data = await response.json();
-        loadingState.classList.add('hidden');
-
+        
         if (data.success) {
-            renderAgentCard(data.agent);
-        } else {
-            alert('Build failed. Check server console.');
+            await loadAgents(); // Refresh the list from DB
+            selectAgent(data.agent); // Instantly switch to the new agent
         }
     } catch (error) {
+        alert('Build failed. Check server console.');
+    } finally {
         loadingState.classList.add('hidden');
-        alert('Cannot connect to the backend server.');
     }
-}
+};
 
-function renderAgentCard(agent) {
-    const card = document.createElement('div');
-    card.className = 'agent-card';
-    
-    // Default placeholder for our hero demo
-    const placeholderText = agent.required_tools.includes('Slack') ? 
-        "Paste a candidate's resume here..." : "Enter data here...";
+// Trigger build on Enter key
+promptInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') buildBtn.click();
+});
 
-    card.innerHTML = `
-        <div class="agent-header">
-            <div class="agent-title">${agent.agent_name}</div>
-            <div class="tool-badge">⟎ ${agent.required_tools.join(', ')}</div>
-        </div>
-        <div class="agent-task">${agent.task_description}</div>
-        
-        <div class="run-section">
-            <textarea id="input-${agent._id}" placeholder="${placeholderText}"></textarea>
-            <button class="run-btn" onclick="runAgent('${agent.agent_name}', '${agent._id}')">Run Agent</button>
-        </div>
-        
-        <div class="output-box" id="output-${agent._id}"></div>
-    `;
-
-    // Add to the top of the workspace
-    workspace.prepend(card);
-}
-
-// Attach to window so the onclick in HTML can find it
-window.runAgent = async function(agentName, agentId) {
-    const inputData = document.getElementById(`input-${agentId}`).value;
-    const outputBox = document.getElementById(`output-${agentId}`);
-    const runBtn = event.target;
+// 🏃 The Execution Process (Now perfectly isolated!)
+async function executeAgent(agent) {
+    const inputData = document.getElementById('run-input').value;
+    const outputBox = document.getElementById('run-output');
+    const runBtn = document.getElementById('execute-btn');
 
     if (!inputData) return;
 
-    // UI Loading state for the specific button
     runBtn.innerText = 'Running...';
     runBtn.disabled = true;
+    outputBox.style.display = 'none'; // Hide old output while thinking
 
     try {
         const response = await fetch(`${API_URL}/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_name: agentName, input_data: inputData })
+            body: JSON.stringify({ agent_name: agent.agent_name, input_data: inputData })
         });
 
         const data = await response.json();
         
-        // Show output parsed as beautiful HTML
         outputBox.innerHTML = marked.parse(data.output);
         outputBox.style.display = 'block';
 
@@ -101,3 +145,6 @@ window.runAgent = async function(agentName, agentId) {
         runBtn.disabled = false;
     }
 }
+
+// Start the app!
+loadAgents();

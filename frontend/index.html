@@ -8,26 +8,41 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
-        <header>
-            <h1>AgentForge<span class="dot">.</span></h1>
-            <p>Describe your workflow. We build the agent.</p>
-        </header>
-
-        <main id="workspace">
-            <div id="loading-state" class="hidden">
-                <div class="spinner"></div>
-                <p>Forging your agent...</p>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>AgentForge<span class="dot">.</span></h2>
+                <button id="new-agent-btn">+ New Agent</button>
             </div>
-            <div id="agents-grid">
+            <div class="sidebar-list" id="agent-list">
                 </div>
-        </main>
+        </aside>
 
-        <div class="command-bar">
-            <input type="text" id="prompt-input" placeholder="e.g., I'm in HR. I need an agent to read resumes and slack me the top 3 skills..." autocomplete="off">
-            <button id="build-btn">Build</button>
-        </div>
+        <main class="main-content">
+            
+            <div id="build-view" class="workspace-view">
+                <header class="workspace-header">
+                    <h1>Forge an Agent</h1>
+                    <p>Describe your workflow. We build the agent.</p>
+                </header>
+                <div class="command-bar">
+                    <input type="text" id="prompt-input" placeholder="e.g., I need an agent to read marketing text and extract metrics..." autocomplete="off">
+                    <button id="build-btn">Build</button>
+                </div>
+                <div id="loading-state" class="hidden">
+                    <div class="spinner"></div>
+                    <p>Forging your agent...</p>
+                </div>
+            </div>
+
+            <div id="run-view" class="workspace-view hidden">
+                <div id="active-agent-container">
+                    </div>
+            </div>
+
+        </main>
     </div>
+
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="script.js"></script>
 </body>
