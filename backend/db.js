@@ -1,54 +1,41 @@
-// Tactical In-Memory Mock DB to bypass Wi-Fi blocks
-const mockDatabase = {
-    agents: [],
-    memory: [],
-    users: [] // <-- NEW: Secure storage for our Auth users
-};
+import { MongoClient } from 'mongodb';
+import dotenv from 'dotenv';
 
-// Mimicking MongoDB's API so we don't have to change server.js later
-export const agentsCollection = {
-    insertOne: async (doc) => { 
-        mockDatabase.agents.push({ ...doc, _id: Date.now().toString() }); 
-        return { acknowledged: true }; 
-    },
-    find: (query = {}) => ({ 
-        toArray: async () => {
-            // Upgraded: Allows us to filter "My Agents" vs "Marketplace" later
-            return mockDatabase.agents.filter(a => {
-                if (query.creator_id) return a.creator_id === query.creator_id;
-                return true; 
-            });
-        }
-    })
-};
+// Load our secret .env file
+dotenv.config();
 
-export const memoryCollection = {
-    insertOne: async (doc) => { 
-        mockDatabase.memory.push({ ...doc, _id: Date.now().toString() }); 
-        return { acknowledged: true }; 
-    },
-    find: (query = {}) => ({
-        toArray: async () => mockDatabase.memory.filter(m => 
-            !query.agent_name || m.agent_name === query.agent_name
-        )
-    })
-};
+const uri = process.env.MONGO_URI;
 
-// 🔐 NEW: Users Collection for JWT Auth
-export const usersCollection = {
-    insertOne: async (doc) => {
-        const newUser = { ...doc, _id: Date.now().toString() };
-        mockDatabase.users.push(newUser);
-        return { acknowledged: true, insertedId: newUser._id };
-    },
-    findOne: async (query) => {
-        // Crucial for Login/Signup: Finds a user by their email
-        return mockDatabase.users.find(u => u.email === query.email) || null;
-    }
-};
+if (!uri) {
+    console.error("🔴 CRITICAL ERROR: MONGO_URI is missing from your .env file!");
+    process.exit(1);
+}
+
+const client = new MongoClient(uri);
+
+// We will export these so server.js can use them exactly like before
+export let agentsCollection;
+export let memoryCollection;
+export let usersCollection;
 
 export async function connectDB() {
-    console.log("🟡 Network Blocked Atlas: Running Tactical In-Memory DB Instead!");
-    console.log("🔐 JWT Auth Module: Armed and Ready");
-    return true; // Resolves immediately
+    try {
+        console.log("🟡 Connecting to MongoDB Atlas...");
+        await client.connect();
+        
+        // Connect to our specific database
+        const db = client.db('agentforge');
+        
+        // Link our collections
+        agentsCollection = db.collection('agents');
+        memoryCollection = db.collection('memory');
+        usersCollection = db.collection('users');
+
+        console.log("🟢 MONGODB ATLAS CONNECTED: The Global Marketplace is Live!");
+        return true;
+    } catch (error) {
+        console.error("🔴 ATLAS CONNECTION FAILED. Are you on the restricted Wi-Fi?");
+        console.error(error.message);
+        process.exit(1); // Kill the server if the DB can't connect
+    }
 }

@@ -1,6 +1,7 @@
 const API_URL = 'http://localhost:5000/api';
 let allAgents = []; 
 let isLoginMode = true;
+let currentTab = 'my-agents'; // State manager for our tabs
 
 // DOM Elements - Auth
 const authView = document.getElementById('auth-view');
@@ -27,20 +28,21 @@ const promptInput = document.getElementById('prompt-input');
 const buildBtn = document.getElementById('build-btn');
 const loadingState = document.getElementById('loading-state');
 
+// DOM Elements - Tabs
+const tabMyWorkspace = document.getElementById('tab-my-workspace');
+const tabMarketplace = document.getElementById('tab-marketplace');
+
 // ==========================================
 // 🔐 AUTHENTICATION LOGIC
 // ==========================================
 
-// Helper: Get token for API calls
 function getAuthHeaders() {
-    const token = localStorage.getItem('agentforge_token');
     return {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${localStorage.getItem('agentforge_token')}`
     };
 }
 
-// Check auth state on load
 function checkAuth() {
     const token = localStorage.getItem('agentforge_token');
     const userName = localStorage.getItem('agentforge_user');
@@ -49,14 +51,13 @@ function checkAuth() {
         authView.classList.add('hidden');
         appLayout.classList.remove('hidden');
         userGreeting.innerText = `👋 Hi, ${userName}`;
-        loadAgents(); // Load their specific agents!
+        switchTab('my-agents'); // Default to personal workspace
     } else {
         authView.classList.remove('hidden');
         appLayout.classList.add('hidden');
     }
 }
 
-// Toggle Login / Signup UI
 authToggleLink.onclick = (e) => {
     e.preventDefault();
     isLoginMode = !isLoginMode;
@@ -79,7 +80,6 @@ authToggleLink.onclick = (e) => {
     }
 };
 
-// Handle Form Submission
 authForm.onsubmit = async (e) => {
     e.preventDefault();
     authError.classList.add('hidden');
@@ -98,14 +98,12 @@ authForm.onsubmit = async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-
         const data = await response.json();
 
         if (data.success) {
-            // Save VIP Token & User Info
             localStorage.setItem('agentforge_token', data.token);
             localStorage.setItem('agentforge_user', data.user.name);
-            checkAuth(); // Boot them into the app
+            checkAuth();
         } else {
             authError.innerText = data.error;
             authError.classList.remove('hidden');
@@ -118,7 +116,6 @@ authForm.onsubmit = async (e) => {
     }
 };
 
-// Handle Logout
 logoutBtn.onclick = () => {
     localStorage.removeItem('agentforge_token');
     localStorage.removeItem('agentforge_user');
@@ -126,19 +123,43 @@ logoutBtn.onclick = () => {
 };
 
 // ==========================================
-// 🚀 APP LOGIC (Now protected with getAuthHeaders!)
+// 🚀 TAB LOGIC (Marketplace vs Workspace)
+// ==========================================
+
+tabMyWorkspace.onclick = () => switchTab('my-agents');
+tabMarketplace.onclick = () => switchTab('marketplace');
+
+function switchTab(tabName) {
+    currentTab = tabName;
+    
+    // UI Styling for active tab
+    if (tabName === 'my-agents') {
+        tabMyWorkspace.style.background = '#5e6ad2';
+        tabMyWorkspace.style.color = '#fff';
+        tabMarketplace.style.background = '#222';
+        tabMarketplace.style.color = '#aaa';
+    } else {
+        tabMarketplace.style.background = '#5e6ad2';
+        tabMarketplace.style.color = '#fff';
+        tabMyWorkspace.style.background = '#222';
+        tabMyWorkspace.style.color = '#aaa';
+    }
+
+    loadAgents(); // Fetch the right data based on tab
+}
+
+// ==========================================
+// 🚀 APP LOGIC
 // ==========================================
 
 async function loadAgents() {
     try {
-        // NOTE: Hitting /my-agents to only get THIS user's creations
-        const response = await fetch(`${API_URL}/my-agents`, { headers: getAuthHeaders() });
+        // Fetch from the correct route based on the active tab!
+        const endpoint = currentTab === 'my-agents' ? '/my-agents' : '/agents';
+        const response = await fetch(`${API_URL}${endpoint}`, { headers: getAuthHeaders() });
         const data = await response.json();
         
-        if (response.status === 401 || response.status === 403) {
-            logoutBtn.click(); // Token expired, force logout
-            return;
-        }
+        if (response.status === 401 || response.status === 403) return logoutBtn.click();
 
         if (data.success) {
             allAgents = data.agents;
@@ -151,15 +172,24 @@ async function loadAgents() {
 
 function renderSidebar() {
     agentList.innerHTML = '';
+    
     if (allAgents.length === 0) {
-        agentList.innerHTML = '<div style="color:#666; font-size:0.85rem; text-align:center; margin-top:20px;">No agents yet.<br>Build one!</div>';
+        const emptyMsg = currentTab === 'my-agents' ? 'No agents yet.<br>Build one!' : 'Marketplace is empty.';
+        agentList.innerHTML = `<div style="color:#666; font-size:0.85rem; text-align:center; margin-top:20px;">${emptyMsg}</div>`;
         return;
     }
 
     allAgents.forEach(agent => {
         const item = document.createElement('div');
         item.className = 'sidebar-item';
-        item.innerText = agent.agent_name;
+        
+        // If in marketplace, show who made it!
+        if (currentTab === 'marketplace') {
+            item.innerHTML = `<div>${agent.agent_name}</div><div style="font-size:0.75rem; color:#666; margin-top:3px;">by ${agent.creator_name}</div>`;
+        } else {
+            item.innerText = agent.agent_name;
+        }
+
         item.onclick = () => selectAgent(agent, item);
         agentList.appendChild(item);
     });
@@ -172,24 +202,77 @@ function selectAgent(agent, element) {
     buildView.classList.add('hidden');
     runView.classList.remove('hidden');
 
-    const placeholderText = agent.required_tools.includes('Slack') ? "Paste data to send to Slack..." : "Enter data here...";
-
-    activeAgentContainer.innerHTML = `
-        <div class="agent-card">
-            <div class="agent-header">
-                <div class="agent-title">${agent.agent_name}</div>
-                <div class="tool-badge">⟎ ${agent.required_tools.join(', ')}</div>
+    // 🧬 Conditional Rendering: Clone vs Run
+    if (currentTab === 'marketplace') {
+        activeAgentContainer.innerHTML = `
+            <div class="agent-card">
+                <div class="agent-header">
+                    <div class="agent-title">${agent.agent_name}</div>
+                    <div class="tool-badge">Created by ${agent.creator_name}</div>
+                </div>
+                <div class="agent-task">${agent.task_description}</div>
+                <div class="run-section" style="text-align: center; padding: 30px;">
+                    <p style="color: #aaa; margin-bottom: 20px;">Add this agent to your personal workspace to use it.</p>
+                    <button class="run-btn" id="clone-btn" style="background: #28a745; max-width: 250px; margin: 0 auto;">Clone to My Workspace</button>
+                </div>
             </div>
-            <div class="agent-task">${agent.task_description}</div>
-            <div class="run-section">
-                <textarea id="run-input" placeholder="${placeholderText}"></textarea>
-                <button class="run-btn" id="execute-btn">Run Agent</button>
+        `;
+        document.getElementById('clone-btn').onclick = () => cloneAgent(agent._id, document.getElementById('clone-btn'));
+    } else {
+        const placeholderText = agent.required_tools.includes('Slack') ? "Paste data to send to Slack..." : "Enter data here...";
+        activeAgentContainer.innerHTML = `
+            <div class="agent-card">
+                <div class="agent-header">
+                    <div class="agent-title">${agent.agent_name}</div>
+                    <div class="tool-badge">⟎ ${agent.required_tools.join(', ')}</div>
+                </div>
+                <div class="agent-task">${agent.task_description}</div>
+                <div class="run-section">
+                    <textarea id="run-input" placeholder="${placeholderText}"></textarea>
+                    <button class="run-btn" id="execute-btn">Run Agent</button>
+                </div>
+                <div class="output-box" id="run-output" style="display: none;"></div>
             </div>
-            <div class="output-box" id="run-output" style="display: none;"></div>
-        </div>
-    `;
+        `;
+        document.getElementById('execute-btn').onclick = () => executeAgent(agent);
+    }
+}
 
-    document.getElementById('execute-btn').onclick = () => executeAgent(agent);
+// 🧬 THE CLONE FUNCTION
+async function cloneAgent(agentId, btnElement) {
+    btnElement.innerText = 'Cloning...';
+    btnElement.disabled = true;
+
+    try {
+        const response = await fetch(`${API_URL}/clone`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ agent_id: agentId })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            btnElement.innerText = 'Cloned!';
+            btnElement.style.background = '#5e6ad2';
+            
+            // Switch back to workspace after 1 second to see the new agent
+            setTimeout(() => {
+                switchTab('my-agents');
+                // Auto-select the newly cloned agent (it will be at the top)
+                setTimeout(() => {
+                    const firstItem = document.querySelector('.sidebar-item');
+                    if(firstItem) firstItem.click();
+                }, 300);
+            }, 1000);
+        } else {
+            alert(data.error);
+            btnElement.innerText = 'Clone Failed';
+        }
+    } catch (error) {
+        alert("Failed to clone.");
+        btnElement.innerText = 'Clone Agent';
+        btnElement.disabled = false;
+    }
 }
 
 newAgentBtn.onclick = () => {
@@ -210,14 +293,17 @@ buildBtn.onclick = async () => {
     try {
         const response = await fetch(`${API_URL}/build`, {
             method: 'POST',
-            headers: getAuthHeaders(), // Secure!
+            headers: getAuthHeaders(),
             body: JSON.stringify({ prompt })
         });
         const data = await response.json();
         
         if (data.success) {
-            await loadAgents();
-            selectAgent(data.agent, document.querySelector('.sidebar-item')); // Select the newest one
+            switchTab('my-agents'); // Ensure we are in workspace
+            setTimeout(() => {
+                const firstItem = document.querySelector('.sidebar-item');
+                if (firstItem) firstItem.click(); // Select the newest one
+            }, 300);
         } else {
             alert(data.error || 'Build failed.');
         }
@@ -246,10 +332,9 @@ async function executeAgent(agent) {
     try {
         const response = await fetch(`${API_URL}/run`, {
             method: 'POST',
-            headers: getAuthHeaders(), // Secure!
+            headers: getAuthHeaders(),
             body: JSON.stringify({ agent_name: agent.agent_name, input_data: inputData })
         });
-
         const data = await response.json();
         
         if (data.success) {
@@ -268,5 +353,5 @@ async function executeAgent(agent) {
     }
 }
 
-// 🎬 Start the app by checking Auth Status!
+// 🎬 Start the app
 checkAuth();

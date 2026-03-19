@@ -1,92 +1,180 @@
 import express from 'express';
 import cors from 'cors';
-import { connectDB, agentsCollection, memoryCollection } from './db.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { connectDB, agentsCollection, memoryCollection, usersCollection } from './db.js';
 import { generateAgentConfig } from './ai.js';
 import { sendToSlack } from './integrations.js'; 
 
+import { ObjectId } from 'mongodb';
+
 const app = express();
 const PORT = 5000;
+const JWT_SECRET = "agentforge_hackathon_super_secret"; // The key to minting tokens
 
 app.use(cors());
 app.use(express.json());
 
-app.get('/api/health', (req, res) => {
-    res.json({ status: "AgentForge Core is online ⚡" });
+// ==========================================
+// 🔐 AUTHENTICATION ROUTES
+// ==========================================
+
+app.post('/api/auth/signup', async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+        
+        // 1. Check if user exists
+        const existing = await usersCollection.findOne({ email });
+        if (existing) return res.status(400).json({ error: "Email already in use." });
+
+        // 2. Hash password & Save
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const { insertedId } = await usersCollection.insertOne({ name, email, password: hashedPassword });
+
+        // 3. Mint JWT Token
+        const token = jwt.sign({ id: insertedId, name }, JWT_SECRET);
+        res.json({ success: true, token, user: { id: insertedId, name } });
+    } catch (err) {
+        res.status(500).json({ error: "Signup failed." });
+    }
 });
 
-// 🚀 Phase 1: THE BUILDER ROUTE
-app.post('/api/build', async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        const user = await usersCollection.findOne({ email });
+        if (!user) return res.status(404).json({ error: "User not found." });
+
+        const validPass = await bcrypt.compare(password, user.password);
+        if (!validPass) return res.status(401).json({ error: "Invalid credentials." });
+
+        const token = jwt.sign({ id: user._id, name: user.name }, JWT_SECRET);
+        res.json({ success: true, token, user: { id: user._id, name: user.name } });
+    } catch (err) {
+        res.status(500).json({ error: "Login failed." });
+    }
+});
+
+// ==========================================
+// 🛡️ THE GATEKEEPER MIDDLEWARE
+// ==========================================
+// Any route using this function requires a valid login token
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <token>"
+    
+    if (!token) return res.status(401).json({ error: "Access Denied. Please log in." });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: "Invalid or expired token." });
+        req.user = user; // Attach the user info to the request
+        next(); // Let them pass
+    });
+}
+
+// ==========================================
+// 🚀 CORE APP ROUTES (Now Protected!)
+// ==========================================
+
+// GET ALL AGENTS (For the future Marketplace - Open to everyone)
+app.get('/api/agents', async (req, res) => {
+    const agents = await (await agentsCollection.find()).toArray();
+    res.json({ success: true, agents: agents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) });
+});
+
+// GET MY AGENTS (For the Sidebar - Requires Login)
+app.get('/api/my-agents', authenticateToken, async (req, res) => {
+    // Only fetch agents where creator_id matches the logged-in user
+    const agents = await (await agentsCollection.find({ creator_id: req.user.id })).toArray();
+    res.json({ success: true, agents: agents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) });
+});
+
+// THE BUILDER ROUTE (Requires Login)
+app.post('/api/build', authenticateToken, async (req, res) => {
     try {
         const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: "Prompt is required" });
 
-        console.log(`\n🛠️ Forging agent for request: "${prompt}"`);
-        
         const agentConfig = await generateAgentConfig(prompt);
-        const newAgent = { ...agentConfig, status: "active", created_at: new Date().toISOString() };
+        
+        // Tag the agent with the user's ID so they own it!
+        const newAgent = { 
+            ...agentConfig, 
+            creator_id: req.user.id, 
+            creator_name: req.user.name,
+            status: "active", 
+            created_at: new Date().toISOString() 
+        };
 
         await agentsCollection.insertOne(newAgent);
-        console.log(`✅ Agent forged: [${newAgent.agent_name}] connected to [${newAgent.required_tools.join(', ')}]`);
-
         res.json({ success: true, agent: newAgent });
     } catch (error) {
-        console.error("🔴 Build failed:", error.message);
         res.status(500).json({ error: "Failed to build agent." });
     }
 });
 
-// 📋 Phase 3: GET ALL AGENTS (For Sidebar & Marketplace)
-app.get('/api/agents', async (req, res) => {
+// 🧬 THE CLONE ROUTE (Marketplace Magic)
+app.post('/api/clone', authenticateToken, async (req, res) => {
     try {
-        const agents = await (await agentsCollection.find()).toArray();
-        // Sort them so the newest agent always appears at the top of the list
-        const sortedAgents = agents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        res.json({ success: true, agents: sortedAgents });
+        const { agent_id } = req.body;
+        
+        // 1. Find the original agent in the global database
+        const originalAgent = await agentsCollection.findOne({ _id: new ObjectId(agent_id) });
+        if (!originalAgent) return res.status(404).json({ error: "Agent not found" });
+
+        // 2. Strip the old ID and stamp it with the NEW user's ID
+        const clonedAgent = {
+            agent_name: `${originalAgent.agent_name} (Copy)`,
+            task_description: originalAgent.task_description,
+            required_tools: originalAgent.required_tools,
+            output_format_rules: originalAgent.output_format_rules,
+            creator_id: req.user.id,        // The person cloning it
+            creator_name: req.user.name,    // Their name
+            status: "active",
+            created_at: new Date().toISOString()
+        };
+
+        // 3. Save it to their personal workspace
+        await agentsCollection.insertOne(clonedAgent);
+        res.json({ success: true, agent: clonedAgent });
+        
     } catch (error) {
-        console.error("🔴 Fetch failed:", error.message);
-        res.status(500).json({ error: "Failed to fetch agents." });
+        console.error("Clone Error:", error);
+        res.status(500).json({ error: "Failed to clone agent." });
     }
 });
 
-// 🏃 Phase 2: THE RUNNER ROUTE (Dynamic Execution & Memory Patch)
-app.post('/api/run', async (req, res) => {
+
+// THE RUNNER ROUTE (Requires Login)
+app.post('/api/run', authenticateToken, async (req, res) => {
     try {
         const { agent_name, input_data } = req.body;
 
-        // 1. Find the agent
         const agents = await (await agentsCollection.find()).toArray();
         const agent = agents.find(a => a.agent_name === agent_name);
         if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-        console.log(`\n⚙️ Executing [${agent.agent_name}]...`);
-
-        // 2. Fetch past memory 
         const memoryQuery = await (await memoryCollection.find({ agent_name })).toArray();
         const pastMemories = memoryQuery.slice(-2); 
         const memoryContext = pastMemories.map(m => `Old Input: ${m.input}\nOld Output: ${m.output}`).join('\n\n');
 
-// 3. The Dynamic Prompt (Now with Formatting Rules!)
         const executionPrompt = `You are an AI agent named "${agent.agent_name}".
-        Your specific task is: "${agent.task_description}".
+Your specific task is: "${agent.task_description}".
 
-        CRITICAL RULES:
-        1. You must execute your task ONLY on the "NEW INPUT" provided below.
-        2. YOU MUST FORMAT YOUR OUTPUT EXACTLY LIKE THIS: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
-        3. Do NOT copy, repeat, or process the "PAST MEMORY". 
+CRITICAL RULES:
+1. You must execute your task ONLY on the "NEW INPUT" provided below.
+2. YOU MUST FORMAT YOUR OUTPUT EXACTLY LIKE THIS: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
+3. Do NOT copy, repeat, or process the "PAST MEMORY". 
 
-        ${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
+${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
 
-        --- NEW INPUT (Process this data) ---
-        ${input_data}
-        -------------------------------------
+--- NEW INPUT (Process this data) ---
+${input_data}
+-------------------------------------
 
-        Execute your task and format the output now:`;
+Execute your task and format the output now:`;
 
-        console.log("\n--- RAW PROMPT SENT TO MISTRAL ---");
-        console.log(executionPrompt);
-        console.log("----------------------------------\n");
-
-        // 4. Send to Local LLM
         const response = await fetch('http://localhost:11434/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -96,25 +184,19 @@ app.post('/api/run', async (req, res) => {
         const data = await response.json();
         const aiOutput = data.response.trim();
 
-        // 5. Save to Memory 
         await memoryCollection.insertOne({
             agent_name: agent.agent_name,
-            input: input_data.substring(0, 50) + '...', // Save a bit more context
+            input: input_data.substring(0, 50) + '...',
             output: aiOutput,
             timestamp: new Date().toISOString()
         });
 
-        // 6. Trigger the Tool Integration
         if (agent.required_tools && agent.required_tools.length > 0) {
-            const { sendToSlack } = await import('./integrations.js');
             await sendToSlack(agent.agent_name, aiOutput);
         }
 
-        // 7. Return to Frontend
         res.json({ success: true, output: aiOutput });
-
     } catch (error) {
-        console.error("🔴 Execution failed:", error.message);
         res.status(500).json({ error: "Failed to run agent." });
     }
 });
@@ -122,7 +204,7 @@ app.post('/api/run', async (req, res) => {
 async function startServer() {
     await connectDB();
     app.listen(PORT, () => {
-        console.log(`🚀 AgentForge Server running on http://localhost:${PORT}`);
+        console.log(`🚀 AgentForge Secure Server running on http://localhost:${PORT}`);
     });
 }
 startServer();
