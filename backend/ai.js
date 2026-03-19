@@ -1,10 +1,17 @@
-// ai.js - The bridge to your local Mistral model
+// backend/ai.js
 export async function generateAgentConfig(userPrompt) {
-    const systemPrompt = `You are a no-code AI platform builder. A user will describe a task. 
-    Extract the configuration and reply ONLY in valid JSON format: 
-    {"agent_name": "Name", "task_description": "Task", "required_tools": ["Tool1"]}
+    const systemPrompt = `You are a top-tier, no-code AI platform builder. A user will describe a task. 
+    Extract the configuration and reply ONLY in valid JSON format like this: 
+    {
+        "agent_name": "Name", 
+        "task_description": "What the agent does", 
+        "required_tools": ["Tool1"],
+        "output_format_rules": "Strict instructions on how the final output must look visually (e.g., 'Use bullet points with emojis for metrics', 'Return a numbered list', 'Output a simple table format')"
+    }
     
-    CRITICAL RULE: For "required_tools", choose ONLY from: ["Slack", "Gmail", "Google Sheets", "Jira"]. Do not invent tools.
+    CRITICAL RULES:
+    1. For "required_tools", choose ONLY from: ["Slack", "Gmail", "Google Sheets", "Jira"].
+    2. "output_format_rules" MUST dictate the visual structure based on what makes sense for the user's goal. Think like a UI/UX designer structuring data.
     
     User request: "${userPrompt}"`;
 
@@ -22,8 +29,6 @@ export async function generateAgentConfig(userPrompt) {
         if (!response.ok) throw new Error("Ollama is not responding");
 
         const data = await response.json();
-        
-        // Ensure we actually got JSON back
         return JSON.parse(data.response);
         
     } catch (error) {

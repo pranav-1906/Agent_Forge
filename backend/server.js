@@ -52,14 +52,14 @@ app.post('/api/run', async (req, res) => {
         const pastMemories = memoryQuery.slice(-2); 
         const memoryContext = pastMemories.map(m => `Old Input: ${m.input}\nOld Output: ${m.output}`).join('\n\n');
 
-        // 3. The Dynamic Prompt (Bug fixes applied!)
+// 3. The Dynamic Prompt (Now with Formatting Rules!)
         const executionPrompt = `You are an AI agent named "${agent.agent_name}".
         Your specific task is: "${agent.task_description}".
 
         CRITICAL RULES:
         1. You must execute your task ONLY on the "NEW INPUT" provided below.
-        2. Do NOT copy, repeat, or process the "PAST MEMORY". 
-        3. Use "PAST MEMORY" solely to understand the style or context of your previous answers.
+        2. YOU MUST FORMAT YOUR OUTPUT EXACTLY LIKE THIS: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
+        3. Do NOT copy, repeat, or process the "PAST MEMORY". 
 
         ${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
 
@@ -67,7 +67,7 @@ app.post('/api/run', async (req, res) => {
         ${input_data}
         -------------------------------------
 
-        Execute your task on the NEW INPUT now. Keep it concise:`;
+        Execute your task and format the output now:`;
 
         console.log("\n--- RAW PROMPT SENT TO MISTRAL ---");
         console.log(executionPrompt);
