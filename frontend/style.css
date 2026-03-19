@@ -155,5 +155,50 @@ header p {
     animation: spin 1s linear infinite;
     margin: 0 auto 10px;
 }
+
+/* --- Premium Markdown & Table Styling --- */
+.output-box table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+    font-size: 0.9rem;
+    background: #0a0a0a;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.output-box th, .output-box td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #222;
+}
+
+.output-box th {
+    background: #111;
+    color: #5e6ad2;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+}
+
+.output-box tr:last-child td {
+    border-bottom: none;
+}
+
+.output-box strong {
+    color: #fff;
+    font-weight: 500;
+}
+
+.output-box ul, .output-box ol {
+    margin-left: 20px;
+    margin-top: 10px;
+}
+
+.output-box li {
+    margin-bottom: 5px;
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 #loading-state { text-align: center; color: #888; margin-top: 40px; }

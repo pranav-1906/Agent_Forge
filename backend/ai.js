@@ -6,11 +6,11 @@ export async function generateAgentConfig(userPrompt) {
         "agent_name": "Name", 
         "task_description": "What the agent does", 
         "required_tools": ["Tool1"],
-        "output_format_rules": "Strict instructions on how the final output must look visually (e.g., 'Use bullet points with emojis for metrics', 'Return a numbered list', 'Output a simple table format')"
+        "output_format_rules": "Strict instructions on how the final output must look visually (e.g., 'Use Markdown tables', 'Use bullet points'). IF THE USER ASKS FOR MULTIPLE THINGS (like a summary AND a draft reply), EXPLICITLY INSTRUCT THE AGENT TO USE BOLD HEADINGS TO SEPARATE THE SECTIONS."
     }
     
     CRITICAL RULES:
-    1. For "required_tools", choose ONLY from: ["Slack", "Gmail", "Google Sheets", "Jira"].
+    1. For "required_tools", choose ONLY from: ["Slack", "Gmail", "Google Sheets", "Jira"]. Do not invent tools.
     2. "output_format_rules" MUST dictate the visual structure based on what makes sense for the user's goal. Think like a UI/UX designer structuring data.
     
     User request: "${userPrompt}"`;

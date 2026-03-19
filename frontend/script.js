@@ -89,8 +89,8 @@ window.runAgent = async function(agentName, agentId) {
 
         const data = await response.json();
         
-        // Show output
-        outputBox.innerText = data.output;
+        // Show output parsed as beautiful HTML
+        outputBox.innerHTML = marked.parse(data.output);
         outputBox.style.display = 'block';
 
     } catch (error) {
