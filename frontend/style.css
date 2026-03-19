@@ -332,5 +332,101 @@ body {
 }
 #logout-btn:hover { background: #333; color: #fff; }
 
+/* --- 🗑️ Delete Button Styling --- */
+.sidebar-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+}
+
+.delete-btn {
+    background: transparent;
+    border: none;
+    color: #ff6b6b;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+
+/* Show icon only on hover */
+.sidebar-item:hover .delete-btn {
+    opacity: 1;
+}
+
+.delete-btn:hover {
+    color: #ff4c4c;
+    background: rgba(255, 107, 107, 0.1);
+}
+
+/* --- 📁 Drag & Drop Zone Styling --- */
+.file-drop-zone {
+    border: 2px dashed #444;
+    border-radius: 8px;
+    padding: 25px 20px;
+    text-align: center;
+    color: #888;
+    background: #0f0f0f;
+    margin-bottom: 15px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+    font-size: 0.9rem;
+}
+
+.file-drop-zone:hover {
+    border-color: #666;
+}
+
+/* The glow effect when dragging a file over the box */
+.file-drop-zone.dragover {
+    border-color: #5e6ad2;
+    background: rgba(94, 106, 210, 0.05);
+    color: #fff;
+}
+
+/* Hide the ugly default file button */
+.file-input-hidden {
+    display: none;
+}
+
+/* The sleek badge showing the attached file */
+.file-badge {
+    background: #222;
+    border: 1px solid #333;
+    padding: 8px 12px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #ededed;
+    font-size: 0.85rem;
+    margin-top: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.file-remove-btn {
+    color: #ff6b6b;
+    cursor: pointer;
+    font-weight: bold;
+    border: none;
+    background: transparent;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.file-remove-btn:hover {
+    color: #ff4c4c;
+}
+
+
+
+
 @keyframes spin { to { transform: rotate(360deg); } }
 #loading-state { text-align: center; color: #888; margin-top: 40px; }

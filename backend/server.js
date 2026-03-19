@@ -2,11 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
+import multer from 'multer';
 import { connectDB, agentsCollection, memoryCollection, usersCollection } from './db.js';
 import { generateAgentConfig } from './ai.js';
 import { sendToSlack } from './integrations.js'; 
 
-import { ObjectId } from 'mongodb';
+const upload = multer({ storage: multer.memoryStorage() });
+
 
 const app = express();
 const PORT = 5000;
@@ -145,16 +148,73 @@ app.post('/api/clone', authenticateToken, async (req, res) => {
     }
 });
 
+// 🗑️ THE DELETE ROUTE
+app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
+    try {
+        const agentId = req.params.id;
+
+        // 1. Find the agent to verify ownership
+        const agent = await agentsCollection.findOne({ _id: new ObjectId(agentId) });
+        if (!agent) return res.status(404).json({ error: "Agent not found." });
+
+        // 2. SECURITY CHECK: Ensure the logged-in user is the creator
+        if (agent.creator_id !== req.user.id) {
+            return res.status(403).json({ error: "Unauthorized to delete this agent." });
+        }
+
+        // 3. Delete from Atlas
+        await agentsCollection.deleteOne({ _id: new ObjectId(agentId) });
+
+        // (Optional) Clean up the agent's memory so it doesn't float around
+        await memoryCollection.deleteMany({ agent_name: agent.agent_name });
+
+        res.json({ success: true, message: "Agent deleted." });
+    } catch (error) {
+        console.error("Delete Error:", error);
+        res.status(500).json({ error: "Failed to delete agent." });
+    }
+});
+
 
 // THE RUNNER ROUTE (Requires Login)
-app.post('/api/run', authenticateToken, async (req, res) => {
+// THE RUNNER ROUTE (Now with File Support!)
+// Notice we added `upload.single('file')` as middleware before the async function
+app.post('/api/run', authenticateToken, upload.single('file'), async (req, res) => {
     try {
-        const { agent_name, input_data } = req.body;
+        // Since we might be sending a file, the frontend will send FormData instead of raw JSON
+        const agent_name = req.body.agent_name;
+        let input_data = req.body.input_data || "";
 
-        const agents = await (await agentsCollection.find()).toArray();
-        const agent = agents.find(a => a.agent_name === agent_name);
+        // 📄 FILE PARSING LOGIC
+        if (req.file) {
+            console.log(`📁 Received file: ${req.file.originalname}`);
+            
+            if (req.file.mimetype === 'application/pdf') {
+                // 🛡️ THE MODERN FORK BYPASS
+                const pdfModule = await import('pdf-extraction');
+                const extractPdf = pdfModule.default || pdfModule; 
+                
+                const pdfData = await extractPdf(req.file.buffer);
+                input_data += `\n\n--- EXTRACTED FILE CONTENT ---\n${pdfData.text}`;
+            } 
+            else if (req.file.mimetype === 'text/plain') {
+                const textData = req.file.buffer.toString('utf-8');
+                input_data += `\n\n--- EXTRACTED FILE CONTENT ---\n${textData}`;
+            } 
+            else {
+                return res.status(400).json({ error: "Unsupported file type. Please upload .pdf or .txt" });
+            }
+        }
+
+        if (!input_data.trim()) {
+            return res.status(400).json({ error: "Please provide text or upload a file." });
+        }
+
+        // 🔍 Fetch Agent details
+        const agent = await agentsCollection.findOne({ agent_name: agent_name });
         if (!agent) return res.status(404).json({ error: "Agent not found" });
 
+        // 🧠 Memory Context
         const memoryQuery = await (await memoryCollection.find({ agent_name })).toArray();
         const pastMemories = memoryQuery.slice(-2); 
         const memoryContext = pastMemories.map(m => `Old Input: ${m.input}\nOld Output: ${m.output}`).join('\n\n');
@@ -191,15 +251,13 @@ Execute your task and format the output now:`;
             timestamp: new Date().toISOString()
         });
 
-        if (agent.required_tools && agent.required_tools.length > 0) {
-            await sendToSlack(agent.agent_name, aiOutput);
-        }
-
         res.json({ success: true, output: aiOutput });
     } catch (error) {
+        console.error("Run Error:", error);
         res.status(500).json({ error: "Failed to run agent." });
     }
 });
+
 
 async function startServer() {
     await connectDB();
