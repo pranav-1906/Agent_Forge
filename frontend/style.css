@@ -438,6 +438,23 @@ body {
     box-shadow: inset 0 2px 20px rgba(0,0,0,0.3);
 }
 
+/* 🛑 PREVENT TEXT BLEED IN AI OUTPUT */
+#run-output, .chat-history, .output-box {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap; /* Forces the browser to respect newlines but still wrap text */
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Fix marked.js code blocks specifically */
+pre, code {
+    white-space: pre-wrap !important;
+    word-break: break-all;
+    max-width: 100%;
+}
+
+
 .output-box h1, .output-box h2, .output-box h3 { margin-top: 24px; margin-bottom: 12px; color: #fff; letter-spacing: -0.5px;}
 .output-box p { margin-bottom: 16px; }
 .output-box ul { margin-bottom: 16px; padding-left: 24px; }

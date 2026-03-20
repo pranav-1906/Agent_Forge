@@ -3,7 +3,7 @@ let allAgents = [];
 let isLoginMode = true;
 let currentTab = 'my-agents'; // State manager for our tabs
 
-let currentAttachedFile = null; // Add this near your other 'let' variables at the top
+let currentAttachedFiles = [];
 
 // DOM Elements - Auth
 const authView = document.getElementById('auth-view');
@@ -259,6 +259,22 @@ function selectAgent(agent, element) {
             </div>
         ` : '';
 
+        // 🌟 NEW: GENERATE DYNAMIC TEXTBOXES
+        let configHtml = '';
+        if (agent.required_inputs && agent.required_inputs.length > 0) {
+            configHtml = `<div class="dynamic-inputs-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">`;
+            agent.required_inputs.forEach(inputName => {
+                const safeId = inputName.replace(/\s+/g, '-').toLowerCase();
+                configHtml += `
+                    <div class="dynamic-input-group" style="display: flex; flex-direction: column;">
+                        <label for="${safeId}" style="font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; text-transform: uppercase;">${inputName}</label>
+                        <input type="text" id="${safeId}" class="dynamic-input-field config-val" placeholder="Enter ${inputName}..." data-key="${inputName}" style="background: rgba(15,15,18,0.6); border: 1px solid #3f3f46; color: white; padding: 12px; border-radius: 8px;">
+                    </div>
+                `;
+            });
+            configHtml += `</div>`;
+        }
+
         activeAgentContainer.innerHTML = `
             <div class="agent-card">
                 <div class="agent-header">
@@ -267,7 +283,7 @@ function selectAgent(agent, element) {
                 </div>
                 <div class="agent-task">${agent.task_description}</div>
                 <div class="run-section">
-                    <textarea id="run-input" placeholder="${placeholderText}"></textarea>
+                    ${configHtml} <textarea id="run-input" placeholder="${placeholderText}"></textarea>
                     ${fileUploadHTML}
                     <button class="primary-btn pulse-hover" id="execute-btn">Run Agent</button>
                 </div>
@@ -315,37 +331,65 @@ function setupDragAndDrop() {
 
 function handleFileSelection(file, textEl, previewEl) {
     if (file.type !== "application/pdf" && file.type !== "text/plain") {
-        alert("Only .pdf and .txt files are supported right now.");
+        alert("Only .pdf and .txt files are supported.");
         return;
     }
-    currentAttachedFile = file;
-    textEl.style.display = 'none'; // Hide the "Drag & Drop" text
-    
-    // Build the sleek file badge
-    previewEl.innerHTML = `
-        <div class="file-badge">
-            <span>📎 ${file.name}</span>
-            <button class="file-remove-btn" onclick="removeFile(event, '${textEl.id}', '${previewEl.id}')">×</button>
+
+    currentAttachedFiles.push(file); // Add to the array
+    textEl.style.display = 'none'; 
+
+    // Render all badges
+    previewEl.innerHTML = currentAttachedFiles.map((f, index) => `
+        <div class="file-badge" style="margin-bottom: 5px; margin-right: 5px;">
+            <span>📎 ${f.name}</span>
+            <button class="file-remove-btn" onclick="removeFile(event, ${index}, '${textEl.id}', '${previewEl.id}')">×</button>
         </div>
-    `;
+    `).join('');
 }
 
-// Ensure this function is attached to the window so the inline onclick can find it
-window.removeFile = function(event, textElId, previewElId) {
-    event.stopPropagation(); // Stop the click from opening the file browser again
-    currentAttachedFile = null;
-    document.getElementById(previewElId).innerHTML = '';
-    document.getElementById(textElId).style.display = 'block';
-    document.getElementById('file-input').value = ""; // Reset hidden input
+window.removeFile = function(event, index, textElId, previewElId) {
+    event.stopPropagation(); 
+    currentAttachedFiles.splice(index, 1); // Remove from array
+
+    if (currentAttachedFiles.length === 0) {
+        document.getElementById(previewElId).innerHTML = '';
+        document.getElementById(textElId).style.display = 'block';
+    } else {
+        // Re-render badges
+        const previewEl = document.getElementById(previewElId);
+        previewEl.innerHTML = currentAttachedFiles.map((f, i) => `
+            <div class="file-badge" style="margin-bottom: 5px; margin-right: 5px;">
+                <span>📎 ${f.name}</span>
+                <button class="file-remove-btn" onclick="removeFile(event, ${i}, '${textElId}', '${previewElId}')">×</button>
+            </div>
+        `).join('');
+    }
+    document.getElementById('file-input').value = ""; 
 };
 
-// 🏃 The Execution Process (Now handles FormData!)
+
+// 🏃 The Execution Process (Now handles FormData + Dynamic Inputs!)
 async function executeAgent(agent) {
-    const inputData = document.getElementById('run-input').value;
+    const baseInputData = document.getElementById('run-input').value;
     const outputBox = document.getElementById('run-output');
     const runBtn = document.getElementById('execute-btn');
 
-    if (!inputData && !currentAttachedFile) {
+    // 🌟 DATA GRABBER: Pull values from the dynamic boxes you filled out
+    let dynamicConfigText = "";
+    document.querySelectorAll('.config-val').forEach(input => {
+        if (input.value.trim() !== "") {
+            // Secretly format this so Mistral knows it's a hardcoded system target!
+            dynamicConfigText += `\n[SYSTEM TARGET - ${input.getAttribute('data-key')}]: ${input.value.trim()}`;
+        }
+    });
+
+    // Combine your main prompt with the secret system data
+    let finalInputData = baseInputData;
+    if (dynamicConfigText !== "") {
+        finalInputData += "\n\n--- REQUIRED SYSTEM CONFIGURATION ---" + dynamicConfigText;
+    }
+
+    if (!finalInputData.trim() && !currentAttachedFile) {
         alert("Please provide text instructions or upload a file.");
         return;
     }
@@ -355,15 +399,18 @@ async function executeAgent(agent) {
     outputBox.style.display = 'none';
 
     // 📦 Pack data into FormData (required for sending files)
-    const formData = new FormData();
-    formData.append('agent_name', agent.agent_name);
-    formData.append('input_data', inputData);
-    if (currentAttachedFile) {
-        formData.append('file', currentAttachedFile);
-    }
+const formData = new FormData();
+formData.append('agent_name', agent.agent_name);
+formData.append('input_data', finalInputData); 
+
+// 🌟 Loop through the array and append each file using the key 'files'
+if (currentAttachedFiles.length > 0) {
+    currentAttachedFiles.forEach(file => {
+        formData.append('files', file);
+    });
+}
 
     // 🛑 CRITICAL HACKATHON RULE: When using FormData, DO NOT set 'Content-Type'. 
-    // The browser will automatically set it to 'multipart/form-data' with the correct boundary.
     const headers = {
         'Authorization': `Bearer ${localStorage.getItem('agentforge_token')}`
     };

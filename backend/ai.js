@@ -1,19 +1,24 @@
 // backend/ai.js
 export async function generateAgentConfig(userPrompt) {
-    const systemPrompt = `You are a top-tier, no-code AI platform builder. A user will describe a task. 
-    Extract the configuration and reply ONLY in valid JSON format like this: 
+const systemPrompt = `You are the AgentForge Architect. You design autonomous AI agents.
+    Based on the user's request, return ONLY a valid JSON object:
     {
-        "agent_name": "Name", 
-        "task_description": "What the agent does", 
-        "required_tools": ["Tool1"],
-        "output_format_rules": "Strict instructions on how the final output must look visually.",
+        "agent_name": "Catchy Name", 
+        "task_description": "Specific instructions for the agent", 
+        "required_tools": ["Tool_Name"],
+        "required_inputs": ["Input_Label_1", "Input_Label_2"],
+        "output_format_rules": "Visual styling for the response",
         "accepts_files": true
     }
     
-    CRITICAL RULES:
-    1. For "required_tools", choose ONLY from: ["Slack", "Gmail", "Google Sheets", "Jira"].
-    2. "accepts_files" MUST be a boolean (true/false). Set to TRUE *ONLY* if the user's description implies the agent needs to read documents, resumes, PDFs, or raw text files. Otherwise, set to FALSE.
-    3. DO NOT use line breaks or newlines inside your string values. Keep all text on a single line.
+    CRITICAL ARCHITECT RULES:
+    1. TOOLS: Choose from ["Bulk_Email", "Slack", "Google_Sheets"]. 
+       - Use "Bulk_Email" if sending to multiple people.
+       - Use "Google_Sheets" for CRM/Finance/Data logging.
+    2. DYNAMIC INPUTS: These are the "Textboxes" the user fills in.
+       - If the task needs external context (e.g., Company Name, Job Role, Spreadsheet ID, Slack Channel), list them in "required_inputs".
+       - DO NOT ask for "Target Email" if the agent is meant to find emails in uploaded files.
+    3. FILES: Set "accepts_files" to true if the agent needs to read Resumes, Invoices, or Reports.
     
     User request: "${userPrompt}"`;
 

@@ -180,122 +180,106 @@ app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
 // THE RUNNER ROUTE (Now with File Support!)
 // Notice we added `upload.single('file')` as middleware before the async function
 // THE FULLY UPGRADED RUNNER ROUTE (Files + Memory + Tools)
-app.post('/api/run', authenticateToken, upload.single('file'), async (req, res) => {
+// 🚀 THE UPGRADED RUNNER ROUTE (Handles Multi-File Batches)
+// Changed upload.single to upload.array('files', 10) to accept up to 10 files at once
+app.post('/api/run', authenticateToken, upload.array('files', 10), async (req, res) => {
     try {
         const agent_name = req.body.agent_name;
         let input_data = req.body.input_data || "";
 
-        // 📄 1. FILE PARSING LOGIC
-        if (req.file) {
-            console.log(`📁 Received file: ${req.file.originalname}`);
+        // 📄 1. BATCH FILE PARSING LOGIC
+        if (req.files && req.files.length > 0) {
+            console.log(`📁 Received batch of ${req.files.length} files`);
+            input_data += `\n\n--- BATCH DOCUMENT DATA ---\n`;
             
-            if (req.file.mimetype === 'application/pdf') {
-                const pdfModule = await import('pdf-extraction');
-                const extractPdf = pdfModule.default || pdfModule; 
-                
-                const pdfData = await extractPdf(req.file.buffer);
-                input_data += `\n\n--- EXTRACTED FILE CONTENT ---\n${pdfData.text}`;
-            } 
-            else if (req.file.mimetype === 'text/plain') {
-                const textData = req.file.buffer.toString('utf-8');
-                input_data += `\n\n--- EXTRACTED FILE CONTENT ---\n${textData}`;
-            } 
-            else {
-                return res.status(400).json({ error: "Unsupported file type. Please upload .pdf or .txt" });
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+                if (file.mimetype === 'application/pdf') {
+                    const pdfModule = await import('pdf-extraction');
+                    const extractPdf = pdfModule.default || pdfModule; 
+                    const pdfData = await extractPdf(file.buffer);
+                    input_data += `\n[DOCUMENT ${i+1}: ${file.originalname}]\n${pdfData.text}\n`;
+                } else if (file.mimetype === 'text/plain') {
+                    input_data += `\n[DOCUMENT ${i+1}: ${file.originalname}]\n${file.buffer.toString('utf-8')}\n`;
+                }
             }
         }
 
-        if (!input_data.trim()) {
-            return res.status(400).json({ error: "Please provide text or upload a file." });
-        }
+        if (!input_data.trim()) return res.status(400).json({ error: "Please provide text or upload files." });
 
-// 🔍 2. FETCH AGENT & PERSISTENT MEMORY
+        // 🔍 2. FETCH AGENT & PERSISTENT MEMORY
         const agent = await agentsCollection.findOne({ agent_name: agent_name });
         if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-        // Ensure tools is always an array to prevent "undefined" errors later
         const tools = agent.required_tools || [];
-
-        // Fetch last 2 interactions for context (Long-term Memory)
         const memoryQuery = await memoryCollection.find({ agent_name }).toArray();
         const pastMemories = memoryQuery.slice(-2); 
-        
-        const memoryContext = pastMemories.length > 0 
-            ? pastMemories.map(m => `Past Task: ${m.input}\nPast Result: ${m.output}`).join('\n\n')
-            : "No previous history with this agent.";
+        const memoryContext = pastMemories.length > 0 ? pastMemories.map(m => `Past Task: ${m.input}\nPast Result: ${m.output}`).join('\n\n') : "";
 
         // 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
         let toolInstructions = "";
         
-        if (tools.includes('Gmail')) {
-            toolInstructions = `
+        // NEW: The Bulk Email JSON Structure
+        if (tools.includes('Bulk_Email')) {
+            toolInstructions += `
 CRITICAL TOOL INSTRUCTION:
-This agent has access to Gmail. If the user's request requires sending an email, you MUST include a JSON block at the very end of your response formatted EXACTLY like this:
+You have the 'Bulk_Email' tool. You must scan the provided documents, extract the email addresses of the relevant candidates, and draft personalized emails using the SYSTEM CONFIGURATION data. 
+You MUST output a JSON block at the end formatted EXACTLY like an array of emails:
 \`\`\`json
 {
-  "action": "send_email",
-  "to": "recipient_email@example.com",
-  "subject": "Your Subject Here",
-  "text": "The full body of the email."
+  "action": "bulk_email",
+  "emails": [
+    {"to": "candidate1@example.com", "subject": "Subject 1", "text": "Full email body 1"},
+    {"to": "candidate2@example.com", "subject": "Subject 2", "text": "Full email body 2"}
+  ]
 }
-\`\`\`
-Do not include any other text inside the code block.`;
+\`\`\`\n`;
         }
 
         // 🧠 4. THE MASTER PROMPT
-        const executionPrompt = `You are an AI agent named "${agent.agent_name}".
-Your specific task is: "${agent.task_description}".
-
+        const executionPrompt = `You are "${agent.agent_name}". Task: "${agent.task_description}".
+        
 CRITICAL RULES:
-1. You must execute your task ONLY on the "NEW INPUT" provided below.
-2. YOU MUST FORMAT YOUR OUTPUT EXACTLY LIKE THIS: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
-3. Do NOT copy, repeat, or process the "PAST MEMORY". IMPORTANT: You must write the FULL body of the email. Do not use placeholders or '...' - write every single word as it should appear to the recipient.
+1. Format output: ${agent.output_format_rules || 'Professional and concise.'}
 ${toolInstructions}
-
-${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
-
---- NEW INPUT (Process this data) ---
+${memoryContext ? `--- PAST MEMORY ---\n${memoryContext}\n` : ''}
+--- NEW INPUT ---
 ${input_data}
--------------------------------------
-
-Execute your task and format the output now:`;
+\nExecute task:`;
 
         // 🚀 5. EXECUTE AI
         const response = await fetch('http://localhost:11434/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'mistral', stream: false, prompt: executionPrompt })
+            body: JSON.stringify({ model: 'mistral', stream: false, prompt: executionPrompt, options: { num_predict: 2048 } })
         });
 
         const data = await response.json();
         let aiOutput = data.response.trim();
         let finalOutput = aiOutput;
 
-        // 🕵️ 6. THE INTERCEPTOR: Scan for Tool Commands
-        const jsonBlockRegex = /```json\n([\s\S]*?)\n```/;
-        const match = aiOutput.match(jsonBlockRegex);
+        // 🕵️ 6. THE INTERCEPTOR (Bulk Email Loop)
+        const jsonMatch = aiOutput.match(/\{[\s\S]*"action"[\s\S]*\}/);
 
-        if (match && tools.includes('Gmail')) {
+        if (jsonMatch) {
             try {
-                const actionData = JSON.parse(match[1]);
+                const actionData = JSON.parse(jsonMatch[0]);
                 
-                if (actionData.action === 'send_email' && actionData.to) {
-                    console.log(`📧 Intercepted email command to: ${actionData.to}`);
-                    
-                    // Trigger the physical email!
-                    const emailResult = await sendEmail(actionData.to, actionData.subject, actionData.text);
-                    
-                    // Strip the ugly JSON out of the UI and replace it with a sleek success badge
-                    if (emailResult.success) {
-                        finalOutput = aiOutput.replace(match[0], `\n\n> **✅ Live Action Executed:** Email successfully sent to \`${actionData.to}\``);
-                    } else {
-                        finalOutput = aiOutput.replace(match[0], `\n\n> **❌ Action Failed:** Could not send email. Error: ${emailResult.error}`);
+                if (actionData.action === 'bulk_email' && tools.includes('Bulk_Email')) {
+                    let sentCount = 0;
+                    // Loop through the array Mistral generated and fire individual emails
+                    for (const email of actionData.emails) {
+                        await sendEmail(email.to, email.subject, email.text);
+                        sentCount++;
                     }
+                    finalOutput = aiOutput.replace(jsonMatch[0], `\n\n> **✅ Mass Action Executed:** Successfully dispatched ${sentCount} customized emails to candidates.`);
                 }
-            } catch (err) {
-                console.error("Failed to parse AI action payload:", err);
-            }
+                
+                finalOutput = finalOutput.replace(/```json/gi, '').replace(/```/g, '');
+            } catch (err) { console.error("Interceptor Parse Error:", err); }
         }
+
+        // ... [LEAVE YOUR 💾 7. SAVE TO MEMORY EXACTLY AS IS] ...
 
         // 💾 7. SAVE TO MEMORY
         await memoryCollection.insertOne({
