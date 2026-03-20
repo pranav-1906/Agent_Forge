@@ -217,21 +217,34 @@ app.post('/api/run', authenticateToken, upload.array('files', 10), async (req, r
         const memoryContext = pastMemories.length > 0 ? pastMemories.map(m => `Past Task: ${m.input}\nPast Result: ${m.output}`).join('\n\n') : "";
 
         // 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
+// 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
         let toolInstructions = "";
         
-        // NEW: The Bulk Email JSON Structure
-        if (tools.includes('Bulk_Email')) {
+        if (tools.includes('Gmail') || tools.includes('Bulk_Email')) {
             toolInstructions += `
-CRITICAL TOOL INSTRUCTION:
-You have the 'Bulk_Email' tool. You must scan the provided documents, extract the email addresses of the relevant candidates, and draft personalized emails using the SYSTEM CONFIGURATION data. 
-You MUST output a JSON block at the end formatted EXACTLY like an array of emails:
+CRITICAL TOOL INSTRUCTION (Gmail):
+If the user wants to send mail, you MUST include a JSON block at the end:
 \`\`\`json
 {
   "action": "bulk_email",
-  "emails": [
-    {"to": "candidate1@example.com", "subject": "Subject 1", "text": "Full email body 1"},
-    {"to": "candidate2@example.com", "subject": "Subject 2", "text": "Full email body 2"}
-  ]
+  "emails": [{"to": "email@example.com", "subject": "Hi", "text": "Body"}]
+}
+\`\`\`\n`;
+        }
+
+        if (tools.includes('Google_Sheets')) {
+            toolInstructions += `
+CRITICAL TOOL INSTRUCTION (Sheets):
+You MUST log data by adding a JSON block at the very end of your response. 
+DO NOT explain how to use APIs. DO NOT provide Python code. ONLY output this:
+\`\`\`json
+{
+  "action": "log_to_sheet",
+  "payload": {
+    "company": "Company Name",
+    "role": "Job Role",
+    "details": "Extracted details"
+  }
 }
 \`\`\`\n`;
         }
@@ -258,28 +271,52 @@ ${input_data}
         let aiOutput = data.response.trim();
         let finalOutput = aiOutput;
 
-        // 🕵️ 6. THE INTERCEPTOR (Bulk Email Loop)
-        const jsonMatch = aiOutput.match(/\{[\s\S]*"action"[\s\S]*\}/);
+// 🕵️ 6. THE UNIVERSAL INTERCEPTOR (Mistral-Proof & Multi-Tool)
+const jsonMatch = aiOutput.match(/\{[\s\S]*"action"[\s\S]*\}/);
 
-        if (jsonMatch) {
-            try {
-                const actionData = JSON.parse(jsonMatch[0]);
-                
-                if (actionData.action === 'bulk_email' && tools.includes('Bulk_Email')) {
-                    let sentCount = 0;
-                    // Loop through the array Mistral generated and fire individual emails
-                    for (const email of actionData.emails) {
-                        await sendEmail(email.to, email.subject, email.text);
-                        sentCount++;
-                    }
-                    finalOutput = aiOutput.replace(jsonMatch[0], `\n\n> **✅ Mass Action Executed:** Successfully dispatched ${sentCount} customized emails to candidates.`);
-                }
-                
-                finalOutput = finalOutput.replace(/```json/gi, '').replace(/```/g, '');
-            } catch (err) { console.error("Interceptor Parse Error:", err); }
+if (jsonMatch) {
+    try {
+        // 🌟 Fix: actionData is now defined at the top of this block
+        const actionData = JSON.parse(jsonMatch[0]);
+        console.log("📦 ACTION DETECTED:", actionData.action);
+
+        // --- 📧 1. BULK EMAIL LOGIC ---
+        if (actionData.action === 'bulk_email' && tools.includes('Bulk_Email')) {
+            let sentCount = 0;
+            for (const email of actionData.emails) {
+                await sendEmail(email.to, email.subject, email.text);
+                sentCount++;
+            }
+            finalOutput = aiOutput.replace(jsonMatch[0], `\n\n> **✅ Mass Action:** Successfully sent ${sentCount} customized emails.`);
+        }
+        
+        // --- 📊 2. GOOGLE SHEETS LOGIC (For your LeadLogger) ---
+        else if (actionData.action === 'log_to_sheet' && tools.includes('Google_Sheets')) {
+            // Extracts the URL from the [SYSTEM TARGET] text we injected in script.js
+            const sheetUrl = input_data.match(/\[SYSTEM TARGET - Spreadsheet ID\]: (.*)/)?.[1];
+            
+            if (sheetUrl) {
+                await fireWebhook(sheetUrl, actionData.payload);
+                finalOutput = aiOutput.replace(jsonMatch[0], `\n\n> **✅ CRM Updated:** Lead data synced to Google Sheets.`);
+            }
         }
 
-        // ... [LEAVE YOUR 💾 7. SAVE TO MEMORY EXACTLY AS IS] ...
+        // --- 💬 3. SLACK LOGIC ---
+        else if (actionData.action === 'post_to_slack' && tools.includes('Slack')) {
+            const slackUrl = input_data.match(/\[SYSTEM TARGET - Slack Webhook URL\]: (.*)/)?.[1];
+            if (slackUrl) {
+                await fireWebhook(slackUrl, { text: actionData.message });
+                finalOutput = aiOutput.replace(jsonMatch[0], `\n\n> **✅ Slack Alert:** Message posted to channel.`);
+            }
+        }
+
+        // Clean up stray backticks
+        finalOutput = finalOutput.replace(/```json/gi, '').replace(/```/g, '');
+
+    } catch (err) { 
+        console.error("🔴 JSON Parsing Error in Interceptor:", err); 
+    }
+}
 
         // 💾 7. SAVE TO MEMORY
         await memoryCollection.insertOne({

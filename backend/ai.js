@@ -19,6 +19,9 @@ const systemPrompt = `You are the AgentForge Architect. You design autonomous AI
        - If the task needs external context (e.g., Company Name, Job Role, Spreadsheet ID, Slack Channel), list them in "required_inputs".
        - DO NOT ask for "Target Email" if the agent is meant to find emails in uploaded files.
     3. FILES: Set "accepts_files" to true if the agent needs to read Resumes, Invoices, or Reports.
+    4. NO EXPLANATIONS: The agents you build must NEVER explain how they work. 
+       They must NEVER provide Python or JavaScript code snippets. 
+       They must ONLY process data and output the required JSON tool commands.
     
     User request: "${userPrompt}"`;
 

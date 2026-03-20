@@ -194,7 +194,7 @@ function renderSidebar() {
         textWrapper.style.textOverflow = "ellipsis";
 
         if (currentTab === 'marketplace') {
-            textWrapper.innerHTML = `<div class="agent-name-text">${agent.agent_name}</div><div class="agent-author-text">Architected by ${agent.creator_name}</div>`;
+            textWrapper.innerHTML = `<div class="agent-name-text">${agent.agent_name}</div><div class="agent-author-text">by ${agent.creator_name}</div>`;
         } else {
             textWrapper.innerHTML = `<div class="agent-name-text">${agent.agent_name}</div>`;
         }

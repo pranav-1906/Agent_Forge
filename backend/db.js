@@ -34,7 +34,11 @@ export async function connectDB() {
         console.log("🟢 MONGODB CONNECTED: The Global Marketplace is Live!");
         return true;
     } catch (error) {
+<<<<<<< HEAD
         console.error("🔴 ATLAS FAILED.");
+=======
+        console.error("🔴 MONGODB CONNECTION FAILED. Are you on the restricted Wi-Fi?");
+>>>>>>> 1c5cd1e (Completed phase 1.79)
         console.error(error.message);
         process.exit(1); // Kill the server if the DB can't connect
     }
