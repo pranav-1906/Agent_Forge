@@ -139,3 +139,34 @@ export async function searchStoredKnowledge(prompt, knowledgeBaseCollection, age
 
     return topResults.map(res => `[Source: ${res.source}]\n${res.chunk}`);
 }
+
+/**
+ * Searches the Agent's Long-Term Memory.
+ * Matches the current prompt against the mathematical vectors of past conversations.
+ */
+export async function searchAgentMemory(prompt, memoryCollection, agentName, topK = 2) {
+    // 1. Get all memories that have an embedding saved
+    const storedMemories = await memoryCollection.find({ 
+        agent_name: agentName, 
+        embedding: { $exists: true } 
+    }).toArray();
+    
+    if (storedMemories.length === 0) return [];
+
+    console.log(`🧠 Memory: Searching ${storedMemories.length} past interactions...`);
+    
+    // 2. Embed the current prompt
+    const promptEmbedding = await generateEmbedding(prompt);
+
+    // 3. Compare it to all past interactions
+    const results = storedMemories.map(item => ({
+        memoryText: `User asked: ${item.input}\nYou answered: ${item.output}`,
+        similarity: cosineSimilarity(promptEmbedding, item.embedding)
+    }));
+
+    // 4. Sort by highest relevance
+    results.sort((a, b) => b.similarity - a.similarity);
+    
+    // 5. Only return the top results (filter out low scores so it doesn't hallucinate)
+    return results.filter(r => r.similarity > 0.4).slice(0, topK).map(res => res.memoryText);
+}

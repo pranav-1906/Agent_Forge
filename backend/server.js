@@ -275,10 +275,18 @@ app.post('/api/run', authenticateToken, upload.array('files', 10), async (req, r
         if (!agent) return res.status(404).json({ error: "Agent not found" });
 
         const tools = agent.required_tools || [];
-        const memoryQuery = await memoryCollection.find({ agent_name }).toArray();
-        const pastMemories = memoryQuery.slice(-2); 
-        const memoryContext = pastMemories.length > 0 ? pastMemories.map(m => `Past Task: ${m.input}\nPast Result: ${m.output}`).join('\n\n') : "";
-
+        // 🧠 LONG-TERM PERSISTENT MEMORY (Vector Search)
+        let memoryContext = '';
+        try {
+            const { searchAgentMemory } = await import('./vector.js');
+            // Mathematically pull the 2 most relevant past conversations
+            const memoryResults = await searchAgentMemory(input_data, memoryCollection, agent.agent_name, 2);
+            if (memoryResults.length > 0) {
+                memoryContext = memoryResults.join('\n\n');
+            }
+        } catch (memErr) {
+            console.error("⚠️ Memory Search skipped:", memErr.message);
+        }
         // 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
 // 🛠️ 3. DYNAMIC TOOL INSTRUCTIONS
         let toolInstructions = "";
@@ -332,12 +340,13 @@ DO NOT explain how to use APIs. DO NOT provide Python code. ONLY output this:
         Your specific task is: "${agent.task_description}".
 
         CRITICAL RULES:
-        1. Format output: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
+        1. Format output: ${agent.output_format_rules || 'Keep it clear, professional, and concise. Use Markdown.'}
         2. If a KNOWLEDGE BASE CONTEXT is provided below, you MUST use it as your primary source of truth.
         3. NO CHATTER & NO META-COMMENTARY: 
         - NEVER say "Based on the provided Knowledge Base..." or mention the context I gave you. Act as if you inherently know this information.
-        - NEVER introduce your answers (e.g., do not say "Here is the response" or "Here is the markdown").
+        - NEVER introduce your answers (e.g., do not say "Here is the response").
         - Just output the final, direct answer.
+        4. TEXT ONLY: Do NOT wrap your standard conversational response in a JSON object (like {"assistant": "..."}). Write directly to the user in plain text or Markdown!
         ${toolInstructions}
 
         ${kbContext ? `${kbContext}\n` : ''}
@@ -407,21 +416,33 @@ if (jsonMatch) {
     }
 }
 
-        // 💾 7. SAVE TO MEMORY
-        await memoryCollection.insertOne({
-            agent_name: agent.agent_name,
-            input: input_data.substring(0, 50) + '...',
-            output: finalOutput, 
-            timestamp: new Date().toISOString()
-        });
+// 💾 UPGRADED MEMORY SAVER (Now with Vector Embeddings!)
+        try {
+            const { generateEmbedding } = await import('./vector.js');
+            
+            // We embed the combination of the question and the answer
+            const memoryString = `User asked: ${input_data}\nYou answered: ${aiOutput}`;
+            const memoryEmbedding = await generateEmbedding(memoryString);
 
-        res.json({ success: true, output: finalOutput });
+            await memoryCollection.insertOne({
+                agent_name: agent.agent_name,
+                input: input_data,
+                output: aiOutput,
+                embedding: memoryEmbedding,
+                timestamp: new Date().toISOString()
+            });
+            console.log("💾 Interaction saved to Long-Term Memory Vector Store.");
+        } catch (memErr) {
+            console.error("⚠️ Failed to save embedded memory:", memErr);
+        }
+
+        // --- 👇 YOU LIKELY ACCIDENTALLY DELETED THIS BOTTOM SECTION 👇 ---
+        res.json({ success: true, output: aiOutput });
     } catch (error) {
         console.error("Run Error:", error);
         res.status(500).json({ error: "Failed to run agent." });
     }
-});
-
+}); // <-- These are the crucial missing brackets that close the /api/run route!
 
 async function startServer() {
     await connectDB();

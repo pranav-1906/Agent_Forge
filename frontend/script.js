@@ -136,12 +136,12 @@ function switchTab(tabName) {
     
     // UI Styling for active tab
     if (tabName === 'my-agents') {
-        tabMyWorkspace.style.background = 'rgba(0, 112, 255,0.55)';
+        tabMyWorkspace.style.background = 'linear-gradient(90deg,rgba(0, 112, 255, .75) 0%, rgba(184, 97, 255, .5) 100%)';
         tabMyWorkspace.style.color = '#fff';
         tabMarketplace.style.background = '#0000';
         tabMarketplace.style.color = '#aaa';
     } else {
-        tabMarketplace.style.background = 'rgba(0, 112, 255,0.55)';
+        tabMarketplace.style.background = 'linear-gradient(90deg,rgba(0, 112, 255, .75) 0%, rgba(184, 97, 255, .5) 100%)';
         tabMarketplace.style.color = '#fff';
         tabMyWorkspace.style.background = '#0000';
         tabMyWorkspace.style.color = '#aaa';
