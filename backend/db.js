@@ -20,7 +20,7 @@ export let usersCollection;
 
 export async function connectDB() {
     try {
-        console.log("🟡 Connecting to MongoDB Atlas...");
+        console.log("🟡 Connecting to MongoDB...");
         await client.connect();
         
         // Connect to our specific database
@@ -31,10 +31,10 @@ export async function connectDB() {
         memoryCollection = db.collection('memory');
         usersCollection = db.collection('users');
 
-        console.log("🟢 MONGODB ATLAS CONNECTED: The Global Marketplace is Live!");
+        console.log("🟢 MONGODB CONNECTED: The Global Marketplace is Live!");
         return true;
     } catch (error) {
-        console.error("🔴 ATLAS CONNECTION FAILED. Are you on the restricted Wi-Fi?");
+        console.error("🔴 ATLAS FAILED.");
         console.error(error.message);
         process.exit(1); // Kill the server if the DB can't connect
     }
