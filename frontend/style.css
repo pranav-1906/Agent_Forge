@@ -408,6 +408,50 @@ body {
 
 #run-input:focus { border-color: rgba(255,255,255,0.3); background: rgba(0,0,0,0.5); }
 
+/* 🚀 THE RUN BUTTON - GLASSMORPHISM AESTHETIC */
+.run-btn {
+    /* A translucent hint of your original indigo gradient */
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(55, 48, 163, 0.15) 100%);
+    
+    /* The magic glass blur */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px); /* Safari support */
+    
+    /* Subtle frosted edge to separate it from the background */
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    color: #fff;
+    padding: 14px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 100%;
+    
+    /* A soft indigo glow bleeding through the glass */
+    box-shadow: 0 4px 15px rgba(79, 70, 229, 0.20);
+}
+
+.run-btn:hover {
+    transform: translateY(-2px);
+    /* Intensify the tint and glow on hover */
+    background: linear-gradient(135deg, rgba(92, 84, 246, 0.25) 0%, rgba(79, 70, 229, 0.25) 100%);
+    box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.run-btn:disabled {
+    /* Flat, dead glass for the disabled state */
+    background: rgba(26, 26, 46, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    color: #555;
+    border-color: rgba(255, 255, 255, 0.05);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
 #execute-btn { padding: 18px; font-size: 1.05rem; }
 
 /* 📁 DRAG & DROP UPGRADE */
@@ -453,6 +497,65 @@ pre, code {
     word-break: break-all;
     max-width: 100%;
 }
+
+
+
+/* --- 📚 KNOWLEDGE BASE PANEL STYLING --- */
+.kb-section {
+    margin-bottom: 20px;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #0d0d1a;
+}
+
+.kb-header {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #0d0d1a 0%, #151530 100%);
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #ccc;
+    transition: background 0.2s;
+    gap: 10px;
+}
+
+.kb-header span:first-child { flex-grow: 1; }
+.kb-header:hover { background: linear-gradient(135deg, #151530 0%, #1a1a3a 100%); }
+.kb-toggle { color: #666; font-size: 0.7rem; }
+
+.kb-badge {
+    background: #222; color: #888;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 0.75rem; border: 1px solid #333;
+}
+.kb-badge.active { background: rgba(94, 106, 210, 0.15); color: #5e6ad2; border-color: #5e6ad2; }
+
+.kb-panel { padding: 16px; background: #0a0a14; border-top: 1px solid #2a2a4a; }
+.kb-description { color: #777; font-size: 0.8rem; margin-bottom: 12px; line-height: 1.4; }
+
+.kb-upload-zone {
+    border: 2px dashed #333; border-radius: 10px; padding: 30px 20px;
+    text-align: center; color: #777; cursor: pointer;
+    background: rgba(0, 0, 0, 0.3); margin-bottom: 10px;
+    transition: all 0.3s ease;
+}
+.kb-upload-zone:hover { border-color: #5e6ad2; background: rgba(94, 106, 210, 0.03); }
+.kb-upload-zone.dragover { border-color: #5e6ad2; background: rgba(94, 106, 210, 0.08); color: #fff; }
+
+.kb-upload-icon { font-size: 2rem; margin-bottom: 8px; }
+.kb-upload-text { font-size: 0.9rem; color: #aaa; margin-bottom: 4px; }
+
+.kb-file-list { margin-top: 10px; }
+.kb-file-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; background: #151520; border: 1px solid #2a2a3a;
+    border-radius: 8px; margin-bottom: 6px; font-size: 0.85rem; color: #ccc;
+    transition: border-color 0.2s;
+}
+.kb-file-item:hover { border-color: #5e6ad2; }
+
 
 
 .output-box h1, .output-box h2, .output-box h3 { margin-top: 24px; margin-bottom: 12px; color: #fff; letter-spacing: -0.5px;}

@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 import multer from 'multer';
-import { connectDB, agentsCollection, memoryCollection, usersCollection } from './db.js';
+import { connectDB, agentsCollection, memoryCollection, usersCollection, knowledgeBaseCollection } from './db.js';
 import { generateAgentConfig } from './ai.js';
 import { sendEmail, fireWebhook } from './integrations.js';
 
@@ -176,6 +176,69 @@ app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
 });
 
 
+
+// ==========================================
+// 📚 KNOWLEDGE BASE ROUTES
+// ==========================================
+
+// 1. UPLOAD to Knowledge Base
+app.post('/api/knowledge/upload', authenticateToken, upload.array('files'), async (req, res) => {
+    try {
+        const { agent_id } = req.body;
+        if (!agent_id || !req.files || req.files.length === 0) return res.status(400).json({ error: "Missing data." });
+
+        const { chunkText, generateEmbedding } = await import('./vector.js');
+        let totalChunks = 0;
+
+        for (const file of req.files) {
+            let fileText = '';
+            if (file.mimetype === 'application/pdf') {
+                const pdfModule = await import('pdf-extraction');
+                const extractPdf = pdfModule.default || pdfModule;
+                fileText = (await extractPdf(file.buffer)).text;
+            } else if (file.mimetype === 'text/plain') {
+                fileText = file.buffer.toString('utf-8');
+            } else continue;
+
+            const chunks = chunkText(fileText, 1000, 200);
+            for (let i = 0; i < chunks.length; i++) {
+                const embedding = await generateEmbedding(chunks[i]);
+                await knowledgeBaseCollection.insertOne({
+                    agent_id, chunk_text: chunks[i], embedding, source_filename: file.originalname, uploaded_at: new Date().toISOString()
+                });
+            }
+            totalChunks += chunks.length;
+        }
+        res.json({ success: true, message: `${totalChunks} chunks indexed.`, totalChunks });
+        } catch (error) {
+                // 🌟 WE ADDED THIS LINE TO REVEAL THE ERROR
+                console.error("🔴 KNOWLEDGE UPLOAD ERROR:", error); 
+                res.status(500).json({ error: "Failed to process knowledge base upload." });
+            }
+        });
+
+// 2. GET Knowledge Base Files
+app.get('/api/knowledge/:agent_id', authenticateToken, async (req, res) => {
+    try {
+        const allChunks = await knowledgeBaseCollection.find({ agent_id: req.params.agent_id }).toArray();
+        const fileMap = {};
+        allChunks.forEach(chunk => {
+            if (!fileMap[chunk.source_filename]) fileMap[chunk.source_filename] = { filename: chunk.source_filename, chunks: 0 };
+            fileMap[chunk.source_filename].chunks++;
+        });
+        res.json({ success: true, files: Object.values(fileMap), totalChunks: allChunks.length });
+    } catch (error) { res.status(500).json({ error: "Failed to retrieve KB." }); }
+});
+
+// 3. DELETE Knowledge Base File
+app.delete('/api/knowledge/:agent_id/:filename', authenticateToken, async (req, res) => {
+    try {
+        const result = await knowledgeBaseCollection.deleteMany({ agent_id: req.params.agent_id, source_filename: decodeURIComponent(req.params.filename) });
+        res.json({ success: true, message: `Removed (${result.deletedCount} chunks).` });
+    } catch (error) { res.status(500).json({ error: "Failed to delete file." }); }
+});
+
+
 // THE RUNNER ROUTE (Requires Login)
 // THE RUNNER ROUTE (Now with File Support!)
 // Notice we added `upload.single('file')` as middleware before the async function
@@ -249,16 +312,42 @@ DO NOT explain how to use APIs. DO NOT provide Python code. ONLY output this:
 \`\`\`\n`;
         }
 
+
+        // 📚 4. RAG SEARCH: Query the vector database
+        let kbContext = '';
+        try {
+            const { searchStoredKnowledge } = await import('./vector.js');
+            // We use the user's input to mathematically search the database
+            const kbResults = await searchStoredKnowledge(input_data, knowledgeBaseCollection, agent._id.toString(), 3);
+            if (kbResults.length > 0) {
+                kbContext = `\n\n--- KNOWLEDGE BASE CONTEXT (Use this to answer) ---\n${kbResults.join('\n\n')}\n--- END KNOWLEDGE BASE ---\n`;
+            }
+        } catch (kbError) {
+            console.error("⚠️ KB Search skipped:", kbError.message);
+        }
+
         // 🧠 4. THE MASTER PROMPT
-        const executionPrompt = `You are "${agent.agent_name}". Task: "${agent.task_description}".
-        
-CRITICAL RULES:
-1. Format output: ${agent.output_format_rules || 'Professional and concise.'}
-${toolInstructions}
-${memoryContext ? `--- PAST MEMORY ---\n${memoryContext}\n` : ''}
---- NEW INPUT ---
-${input_data}
-\nExecute task:`;
+
+        const executionPrompt = `You are an AI agent named "${agent.agent_name}".
+        Your specific task is: "${agent.task_description}".
+
+        CRITICAL RULES:
+        1. Format output: ${agent.output_format_rules || 'Keep it clear, professional, and concise.'}
+        2. If a KNOWLEDGE BASE CONTEXT is provided below, you MUST use it as your primary source of truth.
+        3. NO CHATTER & NO META-COMMENTARY: 
+        - NEVER say "Based on the provided Knowledge Base..." or mention the context I gave you. Act as if you inherently know this information.
+        - NEVER introduce your answers (e.g., do not say "Here is the response" or "Here is the markdown").
+        - Just output the final, direct answer.
+        ${toolInstructions}
+
+        ${kbContext ? `${kbContext}\n` : ''}
+        ${memoryContext ? `--- PAST MEMORY (Do not process this again) ---\n${memoryContext}\n-----------------------------------------------\n` : ''}
+
+        --- NEW INPUT (Process this data) ---
+        ${input_data}
+        -------------------------------------
+
+        Execute your task and format the output now:`;
 
         // 🚀 5. EXECUTE AI
         const response = await fetch('http://localhost:11434/api/generate', {

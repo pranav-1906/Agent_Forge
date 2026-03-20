@@ -244,22 +244,9 @@ function selectAgent(agent, element) {
         `;
         document.getElementById('clone-btn').onclick = () => cloneAgent(agent._id, document.getElementById('clone-btn'));
     } else {
-        const placeholderText = agent.accepts_files 
-            ? "Provide any specific instructions for the document here..." 
-            : "What would you like me to process today?";
+        const placeholderText = tools.includes('Slack') ? "Paste data to send to Slack..." : "Enter text prompt here...";
         
-        const fileUploadHTML = agent.accepts_files ? `
-            <div class="file-drop-zone" id="drop-zone">
-                <input type="file" id="file-input" class="file-input-hidden" accept=".txt,.pdf">
-                <div id="drop-zone-text">
-                    <svg style="margin-bottom:8px;" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <br>Drag & drop a document here, or click to browse
-                </div>
-                <div id="file-preview-container"></div>
-            </div>
-        ` : '';
-
-        // 🌟 NEW: GENERATE DYNAMIC TEXTBOXES
+        // 🌟 1. GENERATE DYNAMIC TEXTBOXES
         let configHtml = '';
         if (agent.required_inputs && agent.required_inputs.length > 0) {
             configHtml = `<div class="dynamic-inputs-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">`;
@@ -275,23 +262,58 @@ function selectAgent(agent, element) {
             configHtml += `</div>`;
         }
 
+        // 🌟 2. GENERATE FILE DROP (If AI says it accepts files)
+        const fileUploadHTML = agent.accepts_files ? `
+            <label class="section-label" style="margin-top: 15px;">📎 Attach File <small class="zone-hint">— One-time input for this run</small></label>
+            <div class="file-drop-zone" id="drop-zone">
+                <input type="file" id="file-input" class="file-input-hidden" accept=".txt,.pdf" multiple>
+                <div id="drop-zone-text">📄 Drop a file to process now</div>
+                <div id="file-preview-container"></div>
+            </div>
+        ` : '';
+
+        // 🌟 3. MASTER HTML MERGE
         activeAgentContainer.innerHTML = `
             <div class="agent-card">
                 <div class="agent-header">
                     <div class="agent-title">${agent.agent_name}</div>
-                    <div class="tool-badge">${badgeText}</div>
+                    <div class="tool-badge">⟎ ${tools.join(', ') || 'Native Agent'}</div>
                 </div>
                 <div class="agent-task">${agent.task_description}</div>
+                
+                ${configHtml} 
+
+                <div class="kb-section">
+                    <div class="kb-header" onclick="toggleKBPanel()">
+                        <span>📚 Knowledge Base <small class="kb-subtitle">— Permanent Reference Docs</small></span>
+                        <span id="kb-badge" class="kb-badge">Loading...</span>
+                        <span class="kb-toggle" id="kb-toggle-icon">▼</span>
+                    </div>
+                    <div id="kb-panel" class="kb-panel" style="display: none;">
+                        <p class="kb-description">Upload company handbooks or policies here. The agent will reference them on <strong>every future run</strong>.</p>
+                        <div class="kb-upload-zone" id="kb-drop-zone">
+                            <input type="file" id="kb-file-input" class="file-input-hidden" accept=".txt,.pdf" multiple>
+                            <div class="kb-upload-icon">📁</div>
+                            <div class="kb-upload-text">Drag & drop reference documents here</div>
+                        </div>
+                        <div id="kb-upload-status" class="hidden" style="color:#5e6ad2; font-size:0.8rem; margin:8px 0;">Uploading...</div>
+                        <div id="kb-file-list" class="kb-file-list"></div>
+                    </div>
+                </div>
+
                 <div class="run-section">
-                    ${configHtml} <textarea id="run-input" placeholder="${placeholderText}"></textarea>
+                    <label class="section-label">💬 Input Data</label>
+                    <textarea id="run-input" placeholder="${placeholderText}"></textarea>
                     ${fileUploadHTML}
-                    <button class="primary-btn pulse-hover" id="execute-btn">Run Agent</button>
+                    <button class="run-btn" id="execute-btn" style="margin-top: 15px;">Run Agent</button>
                 </div>
                 <div class="output-box" id="run-output" style="display: none;"></div>
             </div>
         `;
 
+        // 🌟 4. WIRE UP ALL FUNCTIONS
         document.getElementById('execute-btn').onclick = () => executeAgent(agent);
+        setupKnowledgeBase(agent);
         if (agent.accepts_files) setupDragAndDrop();
     }
 }
@@ -559,6 +581,104 @@ async function deleteAgent(agentId, event) {
         btn.style.pointerEvents = 'auto';
     }
 }
+
+// ==========================================
+// 📚 KNOWLEDGE BASE LOGIC
+// ==========================================
+
+window.toggleKBPanel = function() {
+    const panel = document.getElementById('kb-panel');
+    const icon = document.getElementById('kb-toggle-icon');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        icon.innerText = '▲';
+    } else {
+        panel.style.display = 'none';
+        icon.innerText = '▼';
+    }
+};
+
+function setupKnowledgeBase(agent) {
+    const agentId = agent._id;
+    loadKBFiles(agentId);
+
+    const kbDropZone = document.getElementById('kb-drop-zone');
+    const kbFileInput = document.getElementById('kb-file-input');
+
+    if(!kbDropZone) return; // Failsafe if UI isn't loaded
+
+    kbDropZone.onclick = () => kbFileInput.click();
+    kbDropZone.addEventListener('dragover', (e) => { e.preventDefault(); kbDropZone.classList.add('dragover'); });
+    kbDropZone.addEventListener('dragleave', () => kbDropZone.classList.remove('dragover'));
+    kbDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        kbDropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadToKnowledgeBase(agentId, Array.from(e.dataTransfer.files));
+    });
+    kbFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) uploadToKnowledgeBase(agentId, Array.from(e.target.files));
+    });
+}
+
+async function loadKBFiles(agentId) {
+    try {
+        const response = await fetch(`${API_URL}/knowledge/${agentId}`, { headers: getAuthHeaders() });
+        const data = await response.json();
+        const badge = document.getElementById('kb-badge');
+        const fileList = document.getElementById('kb-file-list');
+
+        if (data.success && data.files.length > 0) {
+            badge.innerText = `${data.totalChunks} chunks stored`;
+            badge.classList.add('active');
+            fileList.innerHTML = data.files.map(f => `
+                <div class="kb-file-item">
+                    <span>📄 ${f.filename}</span>
+                    <button class="file-remove-btn" onclick="deleteKBFile('${agentId}', '${encodeURIComponent(f.filename)}')">×</button>
+                </div>
+            `).join('');
+        } else {
+            badge.innerText = 'Empty';
+            badge.classList.remove('active');
+            fileList.innerHTML = '<div style="color:#666; font-size:0.8rem; text-align:center;">No reference docs uploaded</div>';
+        }
+    } catch (e) {}
+}
+
+async function uploadToKnowledgeBase(agentId, files) {
+    const statusEl = document.getElementById('kb-upload-status');
+    statusEl.classList.remove('hidden');
+    statusEl.innerText = `⏳ Embedding files into vector space...`;
+
+    const formData = new FormData();
+    formData.append('agent_id', agentId);
+    files.forEach(f => formData.append('files', f));
+
+    try {
+        const response = await fetch(`${API_URL}/knowledge/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('agentforge_token')}` },
+            body: formData
+        });
+        const data = await response.json();
+        if (data.success) {
+            statusEl.innerText = `✅ ${data.message}`;
+            loadKBFiles(agentId);
+            setTimeout(() => statusEl.classList.add('hidden'), 3000);
+        } else statusEl.innerText = `❌ ${data.error}`;
+    } catch (e) { statusEl.innerText = '❌ Upload failed.'; }
+}
+
+window.deleteKBFile = async function(agentId, encodedFilename) {
+    if (!confirm("Remove this file from the Knowledge Base?")) return;
+    try {
+        const response = await fetch(`${API_URL}/knowledge/${agentId}/${encodedFilename}`, {
+            method: 'DELETE', headers: getAuthHeaders()
+        });
+        if ((await response.json()).success) loadKBFiles(agentId);
+    } catch (e) {}
+};
+
+
 
 // 🎬 Start the app
 checkAuth();
